@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt API Agent Test</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<h1>On-Device Agent Tester</h1>
+
+<div class="controls">
+    <input type="text" id="prompt-input" value="What is 542 multiplied by 13?" />
+    <button id="run-btn">Run Agent</button>
+</div>
+
+<h3>Agent Reasoning Stream:</h3>
+<div id="logs"></div>
+
+<h3>Final Output:</h3>
+<div id="result"></div>
+
+<script type="module">
+    import { PromptChainHost } from './prompt-chain-host.js';
+    import {MessageContext} from "./consts.js";
+
+    const logBox = document.getElementById('logs');
+    const resultBox = document.getElementById('result');
+    const runBtn = document.getElementById('run-btn');
+    const input = document.getElementById('prompt-input');
+
+    // Listen for custom events dispatched by the Host
+    window.addEventListener(MessageContext.agentLog, (e) => {
+        const msg = e.detail;
+        let className = 'log-entry thought';
+        if (msg.startsWith('Action:')) className = 'log-entry action';
+        if (msg.startsWith('Observation:')) className = 'log-entry observation';
+
+        logBox.innerHTML += `<div class="${className}">${msg}</div>`;
+        logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    async function init() {
+        if (!window.LanguageModel) {
+            resultBox.textContent = "Error: LanguageModel is not available. Please ensure Chrome flags are enabled.";
+            return;
+        }
+        const availability = await LanguageModel.availability();
+        if (availability === "unavailable") {
+            resultBox.textContent = "LanguageModel API is not available on this device/browser.";
+            return;
+        }
+
+        runBtn.disabled = true;
+        runBtn.textContent = "Initializing Model...";
+
+        // Instantiate the host, pointing it to the developer's custom worker
+        const host = new PromptChainHost('./my-agent.js');
+
+        await host.init(
+            "You are a logical assistant. You must always output JSON matching the provided schema. Think step-by-step."
+        );
+
+        runBtn.disabled = false;
+        runBtn.textContent = "Run Agent";
+
+        runBtn.addEventListener('click', async () => {
+            logBox.innerHTML = '';
+            resultBox.textContent = 'Thinking...';
+            runBtn.disabled = true;
+
+            try {
+                const finalAnswer = await host.runAgent(input.value);
+                resultBox.textContent = finalAnswer;
+            } catch (error) {
+                resultBox.textContent = `Error: ${error.message}`;
+            } finally {
+                runBtn.disabled = false;
+            }
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>

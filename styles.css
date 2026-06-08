@@ -1,0 +1,53 @@
+body {
+    font-family: system-ui, sans-serif;
+    max-width: 800px;
+    margin: 2rem auto;
+}
+
+.controls {
+    margin-bottom: 1rem;
+}
+
+#prompt-input {
+    width: 70%;
+    padding: 0.5rem;
+}
+
+#run-btn {
+    padding: 0.5rem 1rem;
+}
+
+#logs {
+    background: #f4f4f4;
+    padding: 1rem;
+    border-radius: 8px;
+    height: 300px;
+    overflow-y: auto;
+    font-family: monospace;
+    margin-bottom: 1rem;
+}
+
+.log-entry {
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 0.5rem;
+}
+
+.thought {
+    color: #555;
+}
+
+.action {
+    color: #0066cc;
+    font-weight: bold;
+}
+
+.observation {
+    color: #008000;
+}
+
+#result {
+    font-size: 1.2rem;
+    font-weight: bold;
+    min-height: 2rem;
+}
