@@ -65,16 +65,17 @@
         runBtn.disabled = false;
         runBtn.textContent = "Run Agent";
 
+        const sessionId = "user_chat_session_001";
+
         runBtn.addEventListener('click', async () => {
             logBox.innerHTML = '';
-            resultBox.textContent = 'Thinking...';
+            resultBox.innerText = 'Thinking...';
             runBtn.disabled = true;
 
             try {
-                const finalAnswer = await host.runAgent(input.value);
-                resultBox.textContent = finalAnswer;
+                resultBox.innerText = await host.runAgent(input.value, sessionId);
             } catch (error) {
-                resultBox.textContent = `Error: ${error.message}`;
+                resultBox.innerText = `Error: ${error.message}`;
             } finally {
                 runBtn.disabled = false;
             }

@@ -49,11 +49,17 @@ export class PromptChainHost {
         }
     }
 
-    runAgent(userPrompt) {
+    runAgent(userPrompt, sessionId = "default_session") {
         return new Promise((resolve, reject) => {
             const id = ++this.msgId;
             this.callbacks.set(id, { resolve, reject });
-            this.worker.postMessage({ id, type: MessageContext.startLoop, payload: userPrompt });
+
+            // Pass both the user prompt and the session ID to the worker
+            this.worker.postMessage({
+                id,
+                type: 'start_loop',
+                payload: { userPrompt, sessionId }
+            });
         });
     }
 }
