@@ -1,5 +1,3 @@
-// prompt-chain-worker.js
-
 export class Tool {
     constructor(name, description, executeFn) {
         this.name = name;
@@ -8,7 +6,6 @@ export class Tool {
     }
 }
 
-// --- IndexedDB Memory Layer ---
 class AgentMemory {
     constructor(dbName = "AgentMemoryDB", storeName = "conversations") {
         this.dbName = dbName;
@@ -62,12 +59,90 @@ class AgentMemory {
     }
 }
 
+class PromptTemplate {
+    constructor() {
+        this.systemInstruction = `You are an autonomous AI agent with long-term memory. Think step-by-step.
+            You must STRICTLY output valid JSON matching the schema.
+            
+            Rules:
+            1. If you need data, set "toolName" to a tool and "toolInput" to the query. Leave "finalAnswer" as "".
+            2. If you know the answer, set "toolName" to "none" and put the answer in "finalAnswer".`;
+
+        this.fewShotExamples = `
+            --- Example 1: Using a Tool ---
+            User: What is the current stock price of Apple?
+            {"thought": "I need to look up the real-time stock price for Apple (AAPL).", "toolName": "FetchStockPrice", "toolInput": "AAPL", "finalAnswer": ""}
+            Observation from FetchStockPrice: 175.50
+            {"thought": "I have the observation. I can now provide the final answer.", "toolName": "none", "toolInput": "", "finalAnswer": "The current stock price of Apple is $175.50."}
+            
+            --- Example 2: Answering Directly ---
+            User: What is the capital of France?
+            {"thought": "I know the capital of France is Paris. No tool is needed.", "toolName": "none", "toolInput": "", "finalAnswer": "The capital of France is Paris."}
+            `;
+    }
+
+    format(relevantTools, historyTurns, userPrompt) {
+        const toolDescriptions = relevantTools.length > 0
+            ? relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
+            : "- none: No external tools available for this query.";
+
+        return `${this.systemInstruction}           
+            Available tools for this request:
+            ${toolDescriptions}
+            - none: Use this if you do not need a tool.
+            
+            ${this.fewShotExamples}
+            
+            --- Current Conversation ---
+            Prior History:
+            ${historyTurns.length > 0 ? historyTurns.join('\n') : "No prior history."}
+            
+            User: ${userPrompt}
+            Output your next step as JSON:`;
+    }
+}
+
+class ToolRetriever {
+    constructor(toolsArray) {
+        this.tools = toolsArray;
+    }
+
+    // A lightweight retrieval mechanism to find the top K relevant tools
+    async getRelevantTools(userPrompt, topK = 3) {
+        if (this.tools.length <= topK) return this.tools;
+
+        const query = userPrompt.toLowerCase();
+
+        // Score tools based on relevance to the prompt
+        const scoredTools = this.tools.map(tool => {
+            let score = 0;
+            const targetText = (tool.name + " " + tool.description).toLowerCase();
+
+            // Basic token overlap scoring (Simulating a BM25 or Embedding search)
+            const queryTokens = query.split(/\W+/);
+            for (const token of queryTokens) {
+                if (token.length > 3 && targetText.includes(token)) {
+                    score += 1;
+                }
+            }
+            return { tool, score };
+        });
+
+        return scoredTools
+            .sort((a, b) => b.score - a.score)
+            .slice(0, topK)
+            .map(st => st.tool);
+    }
+}
+
 // --- Core Engine Factory ---
 export function createAgentWorker(toolsArray) {
     let msgId = 0;
     const resolvers = new Map();
-    const toolsMap = new Map(toolsArray.map(t => [t.name, t]));
+
     const memory = new AgentMemory();
+    const toolRetriever = new ToolRetriever(toolsArray);
+    const promptTemplate = new PromptTemplate();
 
     const agentSchema = {
         "type": "object",
@@ -92,45 +167,30 @@ export function createAgentWorker(toolsArray) {
         self.postMessage({ id: 0, type: 'agent_log', payload: message });
     }
 
+    // prompt-chain-worker.js (Updated runReActLoop)
+
     async function runReActLoop(userPrompt, sessionId) {
         let isComplete = false;
         let finalResult = "";
         let loopCount = 0;
 
-        // Load historical turns from IndexedDB entirely in the background
         const historyTurns = await memory.getHistory(sessionId);
+        const relevantTools = await toolRetriever.getRelevantTools(userPrompt, 3);
+        const toolsMap = new Map(relevantTools.map(t => [t.name, t]));
 
-        const toolDescriptions = toolsArray.map(t => `- ${t.name}: ${t.description}`).join('\n');
-
-        // Inject instructions, available tools, and historical conversation
-        let context = `System: You are an AI agent with long-term memory. Think step-by-step.
-Available tools:
-${toolDescriptions}
-- none: Use this if you do not need a tool and can answer the user directly.
-
-Rules:
-1. If you need data, set "toolName" to a tool and "toolInput" to the query. Leave "finalAnswer" as "".
-2. If you know the answer, set "toolName" to "none" and put the answer in "finalAnswer".
-
-Prior Conversation History:
-${historyTurns.length > 0 ? historyTurns.join('\n') : "No prior history."}
-
-Current Turn:
-User: ${userPrompt}\n`;
-
-        // Local turn buffer to record the ongoing ReAct execution sequence
         let currentTurnLog = `User: ${userPrompt}\n`;
+        let currentPrompt = promptTemplate.format(relevantTools, historyTurns, userPrompt);
 
         while (!isComplete && loopCount < 7) {
             loopCount++;
 
-            const responseText = await askLLM(`${context}\nOutput your next step as JSON:`);
+            const responseText = await askLLM(currentPrompt);
             let response;
 
             try {
                 response = JSON.parse(responseText);
             } catch (e) {
-                context += `Observation: Invalid JSON format. Please output strictly valid JSON.\n`;
+                currentPrompt = `Observation: Invalid JSON format received. You must respond strictly in JSON syntax.`;
                 continue;
             }
 
@@ -151,27 +211,25 @@ User: ${userPrompt}\n`;
                     const tool = toolsMap.get(response.toolName);
                     const toolResult = await tool.executeFn(response.toolInput);
 
-                    const actionStr = `Action: ${response.toolName}("${response.toolInput}")\nObservation: ${toolResult}\n`;
-                    context += actionStr;
-                    currentTurnLog += actionStr;
-
+                    currentTurnLog += `Action: ${response.toolName}("${response.toolInput}")\nObservation: ${toolResult}\n`;
                     logToMain(`Observation: ${toolResult}`);
+                    currentPrompt = `Observation from ${response.toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`;
+
                 } catch (err) {
-                    context += `Observation: Tool failed with error: ${err.message}\n`;
+                    currentTurnLog += `Observation: Tool failed with error: ${err.message}\n`;
+                    currentPrompt = `Observation: Tool failed with error: ${err.message}\nGiven this observation, output your next step as JSON:`;
                 }
             }
             else if (response.toolName === "none" || response.toolName === "") {
-                context += `Observation: You selected no tools, but didn't provide a finalAnswer. Please provide the final answer.\n`;
+                currentPrompt = `Observation: You set toolName to "none" but omitted a finalAnswer. Provide your final answer text in the JSON.`;
             }
             else {
-                context += `Observation: Tool '${response.toolName}' does not exist. Use an available tool or 'none'.\n`;
+                currentPrompt = `Observation: Tool '${response.toolName}' is not loaded. Select from available tools or use 'none'.`;
             }
         }
 
-        // Persist updated history back to IndexedDB before wrapping up
         if (finalResult) {
             historyTurns.push(currentTurnLog.trim());
-            // Optional: keep the sliding window under control (e.g., last 10 full turns)
             if (historyTurns.length > 10) historyTurns.shift();
             await memory.saveHistory(sessionId, historyTurns);
         }
@@ -179,7 +237,6 @@ User: ${userPrompt}\n`;
         return finalResult || "Error: Reached maximum iterations.";
     }
 
-    // Handle incoming commands
     self.addEventListener('message', async (e) => {
         const { id, type, payload } = e.data;
 
