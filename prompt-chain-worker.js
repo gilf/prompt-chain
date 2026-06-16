@@ -167,8 +167,6 @@ export function createAgentWorker(toolsArray) {
         self.postMessage({ id: 0, type: 'agent_log', payload: message });
     }
 
-    // prompt-chain-worker.js (Updated runReActLoop)
-
     async function runReActLoop(userPrompt, sessionId) {
         let isComplete = false;
         let finalResult = "";
