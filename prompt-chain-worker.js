@@ -2,6 +2,7 @@ import { MessageContext } from "./consts.js";
 import { AgentMemory } from "./agent-memory.js";
 import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
+import { isRecoverableError, runWithTimeout, delay } from "./utils.js";
 
 export class Tool {
     constructor(name, description, executeFn) {
@@ -29,7 +30,6 @@ export function createAgentWorker(toolsArray) {
         },
         "required": ["thought", "toolName", "toolInput", "finalAnswer"]
     };
-
     function askLLM(prompt) {
         return new Promise((resolve, reject) => {
             const id = ++msgId;
@@ -80,17 +80,34 @@ export function createAgentWorker(toolsArray) {
             else if (response.toolName && response.toolName !== "none" && toolsMap.has(response.toolName)) {
                 logToMain(`Action: Running ${response.toolName} with input "${response.toolInput}"`);
 
-                try {
-                    const tool = toolsMap.get(response.toolName);
-                    const toolResult = await tool.executeFn(response.toolInput);
+                const tool = toolsMap.get(response.toolName);
+                let toolResult;
+                let success = false;
+                let retryCount = 0;
+                const maxRetries = 3;
 
+                while (retryCount <= maxRetries && !success) {
+                    try {
+                        toolResult = await runWithTimeout(tool.executeFn, response.toolInput, 3000);
+                        success = true;
+                    } catch (err) {
+                        if (isRecoverableError(err) && retryCount < maxRetries) {
+                            retryCount++;
+                            logToMain(`Observation: Tool timed out. Retrying...`);
+                            await delay(1000);
+                        } else {
+                            currentTurnLog += `Action: ${response.toolName}("${response.toolInput}")\nObservation: Tool failed with error: ${err.message}\n`;
+                            logToMain(`Observation: Tool failed with error: ${err.message}`);
+                            currentPrompt = `Observation: Tool '${response.toolName}' failed because: ${err.message}. Please correct the input/parameters, try a different approach, or check tool availability, and try again.`;
+                            break;
+                        }
+                    }
+                }
+
+                if (success) {
                     currentTurnLog += `Action: ${response.toolName}("${response.toolInput}")\nObservation: ${toolResult}\n`;
                     logToMain(`Observation: ${toolResult}`);
                     currentPrompt = `Observation from ${response.toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`;
-
-                } catch (err) {
-                    currentTurnLog += `Observation: Tool failed with error: ${err.message}\n`;
-                    currentPrompt = `Observation: Tool failed with error: ${err.message}\nGiven this observation, output your next step as JSON:`;
                 }
             }
             else if (response.toolName === "none" || response.toolName === "") {
