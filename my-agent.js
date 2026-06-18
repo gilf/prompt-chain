@@ -6,6 +6,9 @@ const fetchTool = new Tool(
     "Fetches text content from a URL.",
     async (url) => {
         const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`HTTP Error: status ${res.status}`);
+        }
         return await res.text();
     }
 );
