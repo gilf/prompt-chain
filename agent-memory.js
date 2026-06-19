@@ -12,7 +12,6 @@ export class AgentMemory {
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
-                    // Keyed by sessionId (e.g., "session_123")
                     db.createObjectStore(this.storeName, { keyPath: "sessionId" });
                 }
             };
@@ -33,17 +32,24 @@ export class AgentMemory {
             const request = store.get(sessionId);
 
             request.onsuccess = () => {
-                resolve(request.result ? request.result.history : []);
+                if (request.result) {
+                    resolve({
+                        history: request.result.history || [],
+                        summary: request.result.summary || ""
+                    });
+                } else {
+                    resolve({ history: [], summary: "" });
+                }
             };
-            request.onerror = () => resolve([]);
+            request.onerror = () => resolve({ history: [], summary: "" });
         });
     }
 
-    saveHistory(sessionId, history) {
+    saveHistory(sessionId, history, summary = "") {
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction(this.storeName, "readwrite");
             const store = tx.objectStore(this.storeName);
-            const request = store.put({ sessionId, history });
+            const request = store.put({ sessionId, history, summary });
 
             request.onsuccess = () => resolve();
             request.onerror = (e) => reject(e.target.error);

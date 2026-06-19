@@ -36,3 +36,44 @@ export async function runWithTimeout(executeFn, input, timeoutMs = 3000) {
 export function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+export async function compressHistory(historyTurns, conversationSummary, askLLM, logToMain) {
+    const SUMMARIZATION_THRESHOLD = 5;
+    const RECENCY_TURNS_TO_KEEP = 2;
+
+    if (historyTurns.length < SUMMARIZATION_THRESHOLD) {
+        return { historyTurns, updatedSummary: conversationSummary };
+    }
+
+    logToMain("Summarizing conversation context to compress memory...");
+    let summaryPrompt;
+    if (conversationSummary) {
+        summaryPrompt = `Based on the following existing summary and the new conversation history, write an updated, concise summary that retains all key facts, decisions, and user preferences.
+            Existing Summary:
+            ${conversationSummary}
+            
+            New Conversation History:
+            ${historyTurns.join('\n')}
+            
+            Output only the updated summary text. Do not output JSON.`;
+    } else {
+        summaryPrompt = `Based on the following conversation history, write a concise summary that retains all key facts, decisions, and user preferences.
+            Conversation History:
+            ${historyTurns.join('\n')}
+            
+            Output only the summary text. Do not output JSON.`;
+    }
+
+    let updatedSummary = conversationSummary;
+    let updatedHistory = historyTurns;
+    try {
+        const rawSummary = await askLLM(summaryPrompt, null);
+        updatedSummary = rawSummary.trim();
+        logToMain(`New Conversation Summary: ${updatedSummary}`);
+        updatedHistory = historyTurns.slice(-RECENCY_TURNS_TO_KEEP);
+    } catch (err) {
+        logToMain(`Failed to summarize conversation: ${err.message}. Saving history without summarization.`);
+    }
+
+    return { historyTurns: updatedHistory, updatedSummary };
+}

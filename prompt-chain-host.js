@@ -21,16 +21,17 @@ export class PromptChainHost {
 
         if (type === MessageContext.llmRequest) {
             try {
-                // Force the LLM to output JSON so we can parse tool requests
-                const responseText = await this.session.prompt(payload.prompt, {
-                    responseConstraint: payload.schema
-                });
+                const options = {};
+                if (payload.schema) {
+                    options.responseConstraint = payload.schema;
+                }
+                const responseText = await this.session.prompt(payload.prompt, options);
                 this.worker.postMessage({ id, type: MessageContext.llmResponse, payload: responseText });
             } catch (err) {
                 this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
             }
         }
-        else if (type === 'agent_log') {
+        else if (type === MessageContext.agentLog) {
             window.dispatchEvent(new CustomEvent(MessageContext.agentLog, { detail: payload }));
         }
         else if (type === MessageContext.agentComplete) {
@@ -54,10 +55,9 @@ export class PromptChainHost {
             const id = ++this.msgId;
             this.callbacks.set(id, { resolve, reject });
 
-            // Pass both the user prompt and the session ID to the worker
             this.worker.postMessage({
                 id,
-                type: 'start_loop',
+                type: MessageContext.startLoop,
                 payload: { userPrompt, sessionId }
             });
         });
