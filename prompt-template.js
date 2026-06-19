@@ -20,10 +20,14 @@ export class PromptTemplate {
             `;
     }
 
-    format(relevantTools, historyTurns, userPrompt) {
+    format(relevantTools, historyTurns, userPrompt, summary = "") {
         const toolDescriptions = relevantTools.length > 0
             ? relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
             : "- none: No external tools available for this query.";
+
+        const summaryPart = summary
+            ? `Conversation Summary (Background Context):\n${summary}\n\n`
+            : "";
 
         return `${this.systemInstruction}           
             Available tools for this request:
@@ -33,7 +37,7 @@ export class PromptTemplate {
             ${this.fewShotExamples}
             
             --- Current Conversation ---
-            Prior History:
+            ${summaryPart}Prior History:
             ${historyTurns.length > 0 ? historyTurns.join('\n') : "No prior history."}
             
             User: ${userPrompt}

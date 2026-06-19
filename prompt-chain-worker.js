@@ -2,7 +2,7 @@ import { MessageContext } from "./consts.js";
 import { AgentMemory } from "./agent-memory.js";
 import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
-import { isRecoverableError, runWithTimeout, delay } from "./utils.js";
+import { isRecoverableError, runWithTimeout, delay, compressHistory } from "./utils.js";
 
 export class Tool {
     constructor(name, description, executeFn) {
@@ -30,11 +30,11 @@ export function createAgentWorker(toolsArray) {
         },
         "required": ["thought", "toolName", "toolInput", "finalAnswer"]
     };
-    function askLLM(prompt) {
+    function askLLM(prompt, schema = agentSchema) {
         return new Promise((resolve, reject) => {
             const id = ++msgId;
             resolvers.set(id, { resolve, reject });
-            self.postMessage({ id, type: MessageContext.llmRequest, payload: { prompt, schema: agentSchema } });
+            self.postMessage({ id, type: MessageContext.llmRequest, payload: { prompt, schema } });
         });
     }
 
@@ -47,12 +47,12 @@ export function createAgentWorker(toolsArray) {
         let finalResult = "";
         let loopCount = 0;
 
-        const historyTurns = await memory.getHistory(sessionId);
+        let { history: historyTurns, summary: conversationSummary } = await memory.getHistory(sessionId);
         const relevantTools = await toolRetriever.getRelevantTools(userPrompt, 3);
         const toolsMap = new Map(relevantTools.map(t => [t.name, t]));
 
         let currentTurnLog = `User: ${userPrompt}\n`;
-        let currentPrompt = promptTemplate.format(relevantTools, historyTurns, userPrompt);
+        let currentPrompt = promptTemplate.format(relevantTools, historyTurns, userPrompt, conversationSummary);
 
         while (!isComplete && loopCount < 7) {
             loopCount++;
@@ -120,8 +120,8 @@ export function createAgentWorker(toolsArray) {
 
         if (finalResult) {
             historyTurns.push(currentTurnLog.trim());
-            if (historyTurns.length > 10) historyTurns.shift();
-            await memory.saveHistory(sessionId, historyTurns);
+            const compressionResult = await compressHistory(historyTurns, conversationSummary, askLLM, logToMain);
+            await memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
         }
 
         return finalResult || "Error: Reached maximum iterations.";
