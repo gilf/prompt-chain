@@ -1,6 +1,6 @@
 import { Tool, createAgentWorker } from './prompt-chain-worker.js';
+import { loadSkillFromUrl } from './skill.js';
 
-// Define custom tools
 const fetchTool = new Tool(
     "FetchData",
     "Fetches text content from a URL.",
@@ -21,5 +21,5 @@ const mathTool = new Tool(
     }
 );
 
-// Initialize the generic engine with these specific tools
-createAgentWorker([fetchTool, mathTool]);
+const weatherSkill = await loadSkillFromUrl('./skills/weather');
+createAgentWorker([fetchTool, mathTool], [weatherSkill]);
