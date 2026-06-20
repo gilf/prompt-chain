@@ -3,59 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prompt API Agent Test</title>
+    <title>Prompt Chain Agent - Skills Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 
 <h1>On-Device Agent Tester</h1>
 
-<div class="controls">
-    <input type="text" id="prompt-input" value="What is 542 multiplied by 13?" />
-    <button id="run-btn">Run Agent</button>
+<div class="app-container">
+    <div class="sidebar">
+        <div class="sidebar-title">Loaded Agent Skills</div>
+        <div id="skills-list">
+            <div class="empty-result" style="font-size: 0.85rem;">Loading skills...</div>
+        </div>
+    </div>
+
+    <div class="main-panel">
+        <div class="chat-card">
+            <div class="panel-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                Ask the AI Agent
+            </div>
+
+            <div class="suggestions">
+                <div class="suggestion-chip" data-prompt="What is the weather in Tokyo?">Weather in Tokyo</div>
+                <div class="suggestion-chip" data-prompt="What is 542 multiplied by 13?">Calculate 542 * 13</div>
+                <div class="suggestion-chip" data-prompt="What is the weather in London right now?">Weather in London</div>
+                <div class="suggestion-chip" data-prompt="Compute (256 * 4) + 12">Math Expression</div>
+            </div>
+
+            <div class="controls">
+                <input type="text" id="prompt-input" placeholder="Type a prompt for the agent..." value="What is the weather in Tokyo?" />
+                <button id="run-btn">Run Agent</button>
+            </div>
+        </div>
+
+        <div class="chat-card">
+            <div class="panel-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-thought);"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                Agent Reasoning Stream
+            </div>
+            <div id="logs">
+                <div class="empty-result" style="color: var(--text-secondary); margin: auto;">Reasoning logs will stream here during execution.</div>
+            </div>
+        </div>
+
+        <div class="output-card">
+            <div class="panel-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-observation);"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                Final Output
+            </div>
+            <div id="result" class="empty-result">Output will appear here...</div>
+        </div>
+    </div>
 </div>
-
-<h3>Agent Reasoning Stream:</h3>
-<div id="logs"></div>
-
-<h3>Final Output:</h3>
-<div id="result"></div>
 
 <script type="module">
     import { PromptChainHost } from './prompt-chain-host.js';
-    import {MessageContext} from "./consts.js";
+    import { MessageContext } from './consts.js';
+    import { parseFrontmatter } from './skill.js';
 
     const logBox = document.getElementById('logs');
     const resultBox = document.getElementById('result');
     const runBtn = document.getElementById('run-btn');
     const input = document.getElementById('prompt-input');
+    const skillsList = document.getElementById('skills-list');
 
-    // Listen for custom events dispatched by the Host
+    async function loadSkillsForUI() {
+        try {
+            const res = await fetch('./skills/weather/SKILL.md');
+            if (res.ok) {
+                const markdown = await res.text();
+                const { attributes, body } = parseFrontmatter(markdown);
+
+                skillsList.innerHTML = `
+                    <div class="skill-card">
+                        <div class="skill-header">
+                            <span class="skill-name">${attributes.name || 'WeatherExpert'}</span>
+                            <span class="skill-badge">Skill Loaded</span>
+                        </div>
+                        <div class="skill-desc">${attributes.description || 'Retrieve weather forecast information for cities.'}</div>
+                        <button class="skill-manifest-toggle" id="manifest-toggle">View Manifest Instructions</button>
+                        <pre class="skill-manifest-body" id="manifest-body">${body.trim()}</pre>
+                    </div>
+                `;
+
+                const toggleBtn = document.getElementById('manifest-toggle');
+                const manifestBody = document.getElementById('manifest-body');
+                toggleBtn.addEventListener('click', () => {
+                    const isVisible = manifestBody.style.display === 'block';
+                    manifestBody.style.display = isVisible ? 'none' : 'block';
+                    toggleBtn.textContent = isVisible ? 'View Manifest Instructions' : 'Hide Manifest Instructions';
+                });
+            } else {
+                skillsList.innerHTML = `<div class="empty-result">No skills detected.</div>`;
+            }
+        } catch (err) {
+            skillsList.innerHTML = `<div class="empty-result" style="color: #ef4444;">Error loading skills sidebar: ${err.message}</div>`;
+        }
+    }
+
+    document.querySelectorAll('.suggestion-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            input.value = chip.getAttribute('data-prompt');
+        });
+    });
+
     window.addEventListener(MessageContext.agentLog, (e) => {
         const msg = e.detail;
-        let className = 'log-entry thought';
-        if (msg.startsWith('Action:')) className = 'log-entry action';
-        if (msg.startsWith('Observation:')) className = 'log-entry observation';
+        let className = 'log-entry';
+        
+        if (msg.startsWith('Thought:')) className += ' thought';
+        else if (msg.startsWith('Action:')) className += ' action';
+        else if (msg.startsWith('Observation:')) className += ' observation';
+        else if (msg.startsWith('System:')) className += ' system';
+
+        const emptyMsg = logBox.querySelector('.empty-result');
+        if (emptyMsg) {
+            logBox.innerHTML = '';
+        }
 
         logBox.innerHTML += `<div class="${className}">${msg}</div>`;
         logBox.scrollTop = logBox.scrollHeight;
     });
 
     async function init() {
+        await loadSkillsForUI();
+
         if (!window.LanguageModel) {
-            resultBox.textContent = "Error: LanguageModel is not available. Please ensure Chrome flags are enabled.";
+            resultBox.innerHTML = `<span style="color: #ef4444;">Error: LanguageModel is not available. Please enable Gemini Prompt API flags in Chrome.</span>`;
+            resultBox.classList.remove('empty-result');
             return;
         }
         const availability = await LanguageModel.availability();
         if (availability === "unavailable") {
-            resultBox.textContent = "LanguageModel API is not available on this device/browser.";
+            resultBox.innerHTML = `<span style="color: #ef4444;">LanguageModel API is not available on this device/browser.</span>`;
+            resultBox.classList.remove('empty-result');
             return;
         }
 
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
 
-        // Instantiate the host, pointing it to the developer's custom worker
         const host = new PromptChainHost('./my-agent.js');
 
         await host.init(
@@ -68,14 +160,15 @@
         const sessionId = "user_chat_session_001";
 
         runBtn.addEventListener('click', async () => {
-            logBox.innerHTML = '';
-            resultBox.innerText = 'Thinking...';
+            logBox.innerHTML = '<div class="empty-result" style="color: var(--text-secondary); margin: auto;">Streaming thoughts...</div>';
+            resultBox.innerText = 'Agent is thinking...';
+            resultBox.classList.remove('empty-result');
             runBtn.disabled = true;
 
             try {
                 resultBox.innerText = await host.runAgent(input.value, sessionId);
             } catch (error) {
-                resultBox.innerText = `Error: ${error.message}`;
+                resultBox.innerHTML = `<span style="color: #ef4444;">Error: ${error.message}</span>`;
             } finally {
                 runBtn.disabled = false;
             }

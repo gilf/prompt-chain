@@ -20,13 +20,17 @@ export class PromptTemplate {
             `;
     }
 
-    format(relevantTools, historyTurns, userPrompt, summary = "") {
+    format(relevantTools, historyTurns, userPrompt, summary = "", skillInstructions = "") {
         const toolDescriptions = relevantTools.length > 0
             ? relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
             : "- none: No external tools available for this query.";
 
         const summaryPart = summary
             ? `Conversation Summary (Background Context):\n${summary}\n\n`
+            : "";
+
+        const skillPart = skillInstructions
+            ? `Active Skill Instructions & Guidelines:\n${skillInstructions}\n\n`
             : "";
 
         return `${this.systemInstruction}           
@@ -37,7 +41,7 @@ export class PromptTemplate {
             ${this.fewShotExamples}
             
             --- Current Conversation ---
-            ${summaryPart}Prior History:
+            ${summaryPart}${skillPart}Prior History:
             ${historyTurns.length > 0 ? historyTurns.join('\n') : "No prior history."}
             
             User: ${userPrompt}

@@ -2,6 +2,7 @@ import { MessageContext } from "./consts.js";
 import { AgentMemory } from "./agent-memory.js";
 import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
+import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory } from "./utils.js";
 
 export class Tool {
@@ -12,12 +13,13 @@ export class Tool {
     }
 }
 
-export function createAgentWorker(toolsArray) {
+export function createAgentWorker(toolsArray, skillsArray = []) {
     let msgId = 0;
     const resolvers = new Map();
 
     const memory = new AgentMemory();
     const toolRetriever = new ToolRetriever(toolsArray);
+    const skillRetriever = new SkillRetriever(skillsArray);
     const promptTemplate = new PromptTemplate();
 
     const agentSchema = {
@@ -30,6 +32,7 @@ export function createAgentWorker(toolsArray) {
         },
         "required": ["thought", "toolName", "toolInput", "finalAnswer"]
     };
+
     function askLLM(prompt, schema = agentSchema) {
         return new Promise((resolve, reject) => {
             const id = ++msgId;
@@ -48,11 +51,28 @@ export function createAgentWorker(toolsArray) {
         let loopCount = 0;
 
         let { history: historyTurns, summary: conversationSummary } = await memory.getHistory(sessionId);
+
         const relevantTools = await toolRetriever.getRelevantTools(userPrompt, 3);
+        const relevantSkills = await skillRetriever.getRelevantSkills(userPrompt, 3);
+        
+        let skillInstructions = "";
+        if (relevantSkills.length > 0) {
+            for (const skill of relevantSkills) {
+                logToMain(`System: Activating skill "${skill.name}"`);
+                skillInstructions += `${skill.instructions} `;
+
+                for (const skillTool of skill.tools) {
+                    if (!relevantTools.some(t => t.name === skillTool.name)) {
+                        relevantTools.push(skillTool);
+                    }
+                }
+            }
+        }
+        
         const toolsMap = new Map(relevantTools.map(t => [t.name, t]));
 
         let currentTurnLog = `User: ${userPrompt}\n`;
-        let currentPrompt = promptTemplate.format(relevantTools, historyTurns, userPrompt, conversationSummary);
+        let currentPrompt = promptTemplate.format(relevantTools, historyTurns, userPrompt, conversationSummary, skillInstructions);
 
         while (!isComplete && loopCount < 7) {
             loopCount++;
