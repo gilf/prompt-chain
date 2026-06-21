@@ -80,3 +80,10 @@ If you are using Visual Studio Code, you can install the **Live Server** extensi
 4. Select one of the pre-defined suggestions (e.g., *Weather in Tokyo*) or type your own query.
 5. Click **Run Agent**.
 6. Follow the **Agent Reasoning Stream** to see the agent's thought process, how it chooses to execute the weather or math tools, and its final response.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](file:///c:/Lectures/Demo/LICENSE).
+
