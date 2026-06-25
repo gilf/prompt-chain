@@ -62,9 +62,7 @@
 </div>
 
 <script type="module">
-    import { PromptChainHost } from './prompt-chain-host.js';
-    import { MessageContext } from './consts.js';
-    import { parseFrontmatter } from './skill.js';
+    import { PromptChainHost, MessageContext, parseFrontmatter } from './src/index.js';
 
     const logBox = document.getElementById('logs');
     const resultBox = document.getElementById('result');
@@ -149,7 +147,7 @@
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
 
-        const host = new PromptChainHost('./my-agent.js');
+        const host = new PromptChainHost('./src/my-agent.js');
 
         await host.init(
             "You are a logical assistant. You must always output JSON matching the provided schema. Think step-by-step."

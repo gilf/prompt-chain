@@ -1,5 +1,4 @@
-import { Tool, createAgentWorker } from './prompt-chain-worker.js';
-import { loadSkillFromUrl } from './skill.js';
+import { Tool, createAgentWorker, loadSkillFromUrl } from './index.js';
 
 const fetchTool = new Tool(
     "FetchData",
@@ -21,5 +20,5 @@ const mathTool = new Tool(
     }
 );
 
-const weatherSkill = await loadSkillFromUrl('./skills/weather');
+const weatherSkill = await loadSkillFromUrl('../skills/weather');
 createAgentWorker([fetchTool, mathTool], [weatherSkill]);
