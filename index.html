@@ -131,19 +131,20 @@
     });
 
     async function init() {
-        await loadSkillsForUI();
-
         if (!window.LanguageModel) {
             resultBox.innerHTML = `<span style="color: #ef4444;">Error: LanguageModel is not available. Please enable Gemini Prompt API flags in Chrome.</span>`;
             resultBox.classList.remove('empty-result');
             return;
         }
+
         const availability = await LanguageModel.availability();
         if (availability === "unavailable") {
             resultBox.innerHTML = `<span style="color: #ef4444;">LanguageModel API is not available on this device/browser.</span>`;
             resultBox.classList.remove('empty-result');
             return;
         }
+
+        await loadSkillsForUI();
 
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
