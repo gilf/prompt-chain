@@ -1,5 +1,5 @@
 {
-  "name": "prompt-chain",
+  "name": "@gilfink/prompt-chain",
   "version": "0.0.1",
   "description": "On-Device Prompt API Chain Agent & Skills Platform",
   "type": "module",
