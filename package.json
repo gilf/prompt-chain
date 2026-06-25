@@ -1,0 +1,35 @@
+{
+  "name": "prompt-chain",
+  "version": "0.0.1",
+  "description": "On-Device Prompt API Chain Agent & Skills Platform",
+  "type": "module",
+  "main": "./dist/prompt-chain.umd.cjs",
+  "module": "./dist/prompt-chain.js",
+  "exports": {
+    ".": {
+      "import": "./dist/prompt-chain.js",
+      "require": "./dist/prompt-chain.umd.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node ./src/test-lcel.js"
+  },
+  "keywords": [
+    "prompt-chain",
+    "agent",
+    "ai",
+    "gemini",
+    "lcel"
+  ],
+  "author": "Gil Fink",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^5.2.0"
+  }
+}
