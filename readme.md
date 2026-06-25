@@ -1,13 +1,16 @@
 # On-Device Prompt Chain Agent
 
-An interactive, on-device AI agent platform that runs a **ReAct (Reasoning + Action)** loop inside a Web Worker. 
-It leverages Chrome's experimental **built-in Gemini Prompt API** for private, local, and cost-free inference, combining custom tools, modular skills, and persistent long-term memory.
+An interactive, on-device AI agent platform that runs autonomous loops inside a Web Worker. 
+It leverages Chrome's experimental **built-in Gemini Prompt API** for private, local, and cost-free inference, combining custom tools, modular skills, persistent long-term memory, and a declarative **LangChain Expression Language (LCEL)** pipeline architecture.
 
 ---
 
 ## Key Features
 
 - **On-Device LLM Inference**: Runs entirely in the browser using Chrome's built-in `LanguageModel` API (`window.LanguageModel`), eliminating the need for external API keys or network latency.
+- **Composable Chains & Universal Agent Runtime (LCEL)**: 
+  - Features declarative primitive composition via [runnable.js](file:///c:/Lectures/Demo/runnable.js) (`RunnableSequence`, `RunnableParallel`, `.pipe()`, `.bind()`).
+  - [createAgentWorker()](file:///c:/Lectures/Demo/prompt-chain-worker.js) acts as a **Universal Agent Runtime Host**. It accepts either legacy tool arrays (to spin up default ReAct loops via `ReActAgentExecutor`) or **any custom Runnable chain topology**.
 - **Asynchronous Web Worker Architecture**: 
   - [prompt-chain-host.js](file:///c:/Lectures/Demo/prompt-chain-host.js) runs on the main browser thread to manage the LLM session.
   - [prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js) runs in a background thread to orchestrate the agent loop, execute tools, and handle errors, keeping the user interface completely responsive.
@@ -22,14 +25,44 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 ## File Directory & Architecture
 
 - **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, and loaded skills indicators.
-- **[my-agent.js](file:///c:/Lectures/Demo/my-agent.js)**: The Web Worker entry point. It instantiates the worker, defines global tools (like `Calculator` and `FetchData`), and loads dynamic skills.
-- **[prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js)**: The core ReAct loop manager. Parses LLM output JSON structure, calls tool execution logic, handles timeouts/retries, and updates IndexedDB.
+- **[runnable.js](file:///c:/Lectures/Demo/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`).
+- **[my-agent.js](file:///c:/Lectures/Demo/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
+- **[custom-runner-demo.js](file:///c:/Lectures/Demo/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
+- **[prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.
 - **[prompt-chain-host.js](file:///c:/Lectures/Demo/prompt-chain-host.js)**: Manages main thread events, initializes Chrome's built-in model, translates LLM requests from the worker, and dispatches log streams to the UI.
-- **[prompt-template.js](file:///c:/Lectures/Demo/prompt-template.js)**: Assembles the prompt structure including system rules, few-shot examples, relevant tools, active skill instructions, and prior history summary.
+- **[prompt-template.js](file:///c:/Lectures/Demo/prompt-template.js)**: LCEL-pipeable prompt formatting component.
+- **[agent-memory.js](file:///c:/Lectures/Demo/agent-memory.js)**: IndexedDB persistent conversation storage manager.
 - **[skills/](file:///c:/Lectures/Demo/skills)**:
-  - **[weather/](file:///c:/Lectures/Demo/skills/weather)**: A sample modular skill containing:
-    - **[SKILL.md](file:///c:/Lectures/Demo/skills/weather/SKILL.md)**: Markdown file containing attributes (YAML frontmatter) and system instructions.
-    - **[tools.js](file:///c:/Lectures/Demo/skills/weather/tools.js)**: Local implementation of weather-fetching mock tools.
+  - **[weather/](file:///c:/Lectures/Demo/skills/weather)**: Sample modular skill containing [SKILL.md](file:///c:/Lectures/Demo/skills/weather/SKILL.md) and mock tools.
+
+---
+
+## LCEL Chaining & Universal Runtime Examples
+
+### 1. Default ReAct Agent Mode
+Passing an array of tools to `createAgentWorker` automatically instantiates the built-in `ReActAgentExecutor`:
+```javascript
+import { Tool, createAgentWorker } from './prompt-chain-worker.js';
+
+const calcTool = new Tool("Calculator", "Evaluates math", expr => eval(expr));
+createAgentWorker([calcTool]); // Runs standard 7-turn ReAct reasoning loop
+```
+
+### 2. Custom Agent Topologies (Bypassing ReAct)
+You can pass **any custom Runnable chain** directly into `createAgentWorker()`:
+```javascript
+import { RunnableSequence, RunnableLambda, createAgentWorker } from './prompt-chain-worker.js';
+
+const directAnswerChain = RunnableSequence.from([
+    new RunnableLambda(async ({ userPrompt, logToMain }) => {
+        logToMain("Thought: Bypassing ReAct loop for linear execution...");
+        return `Answer directly: ${userPrompt}`;
+    }),
+    myLLMRunnable // Any custom model wrapper or pipeline step
+]);
+
+createAgentWorker(directAnswerChain); // Universal Web Worker Host runs your chain!
+```
 
 ---
 
@@ -50,40 +83,17 @@ This project requires a Chrome version (or Chromium-based browser like Chrome Ca
 Because the project loads ES6 modules (`import/export`) and spins up Web Workers dynamically, opening `index.html` directly from your file system (`file://` protocol) will fail due to CORS security policies. You **must** serve it using a local web server.
 
 ### Option 1: Using Node.js (npx)
-If you have Node.js installed, open a terminal in the project directory and run:
 ```bash
 npx serve
 ```
-Or:
-```bash
-npx http-server
-```
-Then navigate to the URL provided in the console (usually `http://localhost:3000` or `http://localhost:8080`).
 
 ### Option 2: Using Python
-If you have Python installed, run the following command in your terminal:
 ```bash
 python -m http.server 8000
 ```
-Then open your browser and navigate to `http://localhost:8000`.
-
-### Option 3: Using VS Code Live Server
-If you are using Visual Studio Code, you can install the **Live Server** extension, open the project workspace, and click the **Go Live** button in the status bar.
-
----
-
-## Usage Guide
-
-1. Make sure your browser has the Prompt API enabled.
-2. Launch the local server and open the page.
-3. The page will display the **WeatherExpert** skill loaded in the sidebar.
-4. Select one of the pre-defined suggestions (e.g., *Weather in Tokyo*) or type your own query.
-5. Click **Run Agent**.
-6. Follow the **Agent Reasoning Stream** to see the agent's thought process, how it chooses to execute the weather or math tools, and its final response.
 
 ---
 
 ## License
 
 This project is licensed under the [MIT License](file:///c:/Lectures/Demo/LICENSE).
-
