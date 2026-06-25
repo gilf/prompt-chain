@@ -1,5 +1,8 @@
-export class PromptTemplate {
+import { Runnable } from "./runnable.js";
+
+export class PromptTemplate extends Runnable {
     constructor() {
+        super();
         this.systemInstruction = `You are an autonomous AI agent with long-term memory. Think step-by-step.
             You must STRICTLY output valid JSON matching the schema.
             
@@ -46,5 +49,10 @@ export class PromptTemplate {
             
             User: ${userPrompt}
             Output your next step as JSON:`;
+    }
+
+    async invoke(input, config = {}) {
+        const { relevantTools = [], historyTurns = [], userPrompt = "", summary = "", skillInstructions = "" } = input;
+        return this.format(relevantTools, historyTurns, userPrompt, summary, skillInstructions);
     }
 }
