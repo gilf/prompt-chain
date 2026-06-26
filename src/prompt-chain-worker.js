@@ -5,8 +5,10 @@ import { ToolRetriever } from "./tool-retriever.js";
 import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory } from "./utils.js";
 import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding } from "./runnable.js";
+import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 
 export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding };
+export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 
 export class Tool {
     constructor(name, description, executeFn) {
@@ -144,7 +146,8 @@ export class ReActAgentExecutor extends Runnable {
         }
 
         if (finalResult) {
-            historyTurns.push(currentTurnLog.trim());
+            historyTurns.push(new HumanMessage(userPrompt));
+            historyTurns.push(new AIMessage(finalResult));
             const compressionResult = await compressHistory(historyTurns, conversationSummary, this.askLLM, this.logToMain);
             await this.memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
         }

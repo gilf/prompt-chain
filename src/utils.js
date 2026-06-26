@@ -46,6 +46,14 @@ export async function compressHistory(historyTurns, conversationSummary, askLLM,
     }
 
     logToMain("Summarizing conversation context to compress memory...");
+    
+    const formatTurn = item => {
+        if (typeof item === "string") return item;
+        const type = typeof item?.getType === "function" ? item.getType() : item?.type;
+        return `${type || "Turn"}: ${item?.content || ""}`;
+    };
+    const historyStr = historyTurns.map(formatTurn).join('\n');
+
     let summaryPrompt;
     if (conversationSummary) {
         summaryPrompt = `Based on the following existing summary and the new conversation history, write an updated, concise summary that retains all key facts, decisions, and user preferences.
@@ -53,13 +61,13 @@ export async function compressHistory(historyTurns, conversationSummary, askLLM,
             ${conversationSummary}
             
             New Conversation History:
-            ${historyTurns.join('\n')}
+            ${historyStr}
             
             Output only the updated summary text. Do not output JSON.`;
     } else {
         summaryPrompt = `Based on the following conversation history, write a concise summary that retains all key facts, decisions, and user preferences.
             Conversation History:
-            ${historyTurns.join('\n')}
+            ${historyStr}
             
             Output only the summary text. Do not output JSON.`;
     }

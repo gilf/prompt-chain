@@ -1,3 +1,5 @@
+import { BaseMessage } from "./messages.js";
+
 export class AgentMemory {
     constructor(dbName = "AgentMemoryDB", storeName = "conversations") {
         this.dbName = dbName;
@@ -33,8 +35,10 @@ export class AgentMemory {
 
             request.onsuccess = () => {
                 if (request.result) {
+                    const rawHistory = request.result.history || [];
+                    const typedHistory = rawHistory.map(item => BaseMessage.fromJSON(item));
                     resolve({
-                        history: request.result.history || [],
+                        history: typedHistory,
                         summary: request.result.summary || ""
                     });
                 } else {
@@ -49,7 +53,10 @@ export class AgentMemory {
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction(this.storeName, "readwrite");
             const store = tx.objectStore(this.storeName);
-            const request = store.put({ sessionId, history, summary });
+            const serializedHistory = history.map(item => {
+                return typeof item?.toJSON === "function" ? item.toJSON() : item;
+            });
+            const request = store.put({ sessionId, history: serializedHistory, summary });
 
             request.onsuccess = () => resolve();
             request.onerror = (e) => reject(e.target.error);

@@ -15,9 +15,10 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - [prompt-chain-host.js](file:///c:/Lectures/Demo/prompt-chain-host.js) runs on the main browser thread to manage the LLM session.
   - [prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js) runs in a background thread to orchestrate the agent loop, execute tools, and handle errors, keeping the user interface completely responsive.
 - **Dynamic Skill & Tool Retrieval (Lightweight RAG)**: Matches the user prompt against loaded skills and tools using a token-overlap scorer, feeding only relevant context to the prompt and preserving token limits.
-- **Long-term Memory with Auto-Summarization**: 
-  - Uses [agent-memory.js](file:///c:/Lectures/Demo/agent-memory.js) to store conversation histories locally in the browser via **IndexedDB**.
-  - Implements automatic conversation summarization (defined in [utils.js](file:///c:/Lectures/Demo/utils.js)) once the chat history exceeds 5 turns, ensuring the context window remains optimized.
+- **Typed Message History & Roles (LangChain Standard)**:
+  - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/messages.js).
+  - Uses [agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js) to persist object-oriented message schemas directly in **IndexedDB**.
+  - Implements automatic conversation summarization (defined in [utils.js](file:///c:/Lectures/Demo/src/utils.js)) once the chat history exceeds 5 turns, ensuring the context window remains optimized.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays the real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside the final response.
 
 ---
@@ -25,13 +26,14 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 ## File Directory & Architecture
 
 - **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, and loaded skills indicators.
-- **[runnable.js](file:///c:/Lectures/Demo/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`).
-- **[my-agent.js](file:///c:/Lectures/Demo/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
-- **[custom-runner-demo.js](file:///c:/Lectures/Demo/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
-- **[prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.
-- **[prompt-chain-host.js](file:///c:/Lectures/Demo/prompt-chain-host.js)**: Manages main thread events, initializes Chrome's built-in model, translates LLM requests from the worker, and dispatches log streams to the UI.
-- **[prompt-template.js](file:///c:/Lectures/Demo/prompt-template.js)**: LCEL-pipeable prompt formatting component.
-- **[agent-memory.js](file:///c:/Lectures/Demo/agent-memory.js)**: IndexedDB persistent conversation storage manager.
+- **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
+- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`).
+- **[my-agent.js](file:///c:/Lectures/Demo/src/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
+- **[custom-runner-demo.js](file:///c:/Lectures/Demo/src/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
+- **[prompt-chain-worker.js](file:///c:/Lectures/Demo/src/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.
+- **[prompt-chain-host.js](file:///c:/Lectures/Demo/src/prompt-chain-host.js)**: Manages main thread events, initializes Chrome's built-in model, translates LLM requests from the worker, and dispatches log streams to the UI.
+- **[prompt-template.js](file:///c:/Lectures/Demo/src/prompt-template.js)**: LCEL-pipeable prompt formatting component.
+- **[agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js)**: IndexedDB persistent conversation storage manager.
 - **[skills/](file:///c:/Lectures/Demo/skills)**:
   - **[weather/](file:///c:/Lectures/Demo/skills/weather)**: Sample modular skill containing [SKILL.md](file:///c:/Lectures/Demo/skills/weather/SKILL.md) and mock tools.
 
