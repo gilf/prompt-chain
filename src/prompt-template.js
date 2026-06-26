@@ -23,6 +23,19 @@ export class PromptTemplate extends Runnable {
             `;
     }
 
+    formatMessage(msg) {
+        if (typeof msg === "string") return msg;
+        const type = typeof msg?.getType === "function" ? msg.getType() : msg?.type;
+        const content = msg?.content || "";
+        switch (type) {
+            case "human": return `User: ${content}`;
+            case "ai": return `Assistant: ${content}`;
+            case "system": return `System: ${content}`;
+            case "tool": return `Observation (${msg.tool_name || "Tool"}): ${content}`;
+            default: return content;
+        }
+    }
+
     format(relevantTools, historyTurns, userPrompt, summary = "", skillInstructions = "") {
         const toolDescriptions = relevantTools.length > 0
             ? relevantTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
@@ -36,6 +49,10 @@ export class PromptTemplate extends Runnable {
             ? `Active Skill Instructions & Guidelines:\n${skillInstructions}\n\n`
             : "";
 
+        const formattedHistory = historyTurns.length > 0
+            ? historyTurns.map(m => this.formatMessage(m)).join('\n')
+            : "No prior history.";
+
         return `${this.systemInstruction}           
             Available tools for this request:
             ${toolDescriptions}
@@ -45,7 +62,7 @@ export class PromptTemplate extends Runnable {
             
             --- Current Conversation ---
             ${summaryPart}${skillPart}Prior History:
-            ${historyTurns.length > 0 ? historyTurns.join('\n') : "No prior history."}
+            ${formattedHistory}
             
             User: ${userPrompt}
             Output your next step as JSON:`;
