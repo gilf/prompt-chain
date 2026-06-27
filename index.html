@@ -62,7 +62,7 @@
 </div>
 
 <script type="module">
-    import { PromptChainHost, MessageContext, parseFrontmatter } from './src/index.js';
+    import { PromptChainHost, MessageContext, CallbackEvents, parseFrontmatter } from './src/index.js';
 
     const logBox = document.getElementById('logs');
     const resultBox = document.getElementById('result');
@@ -97,16 +97,21 @@
                     toggleBtn.textContent = isVisible ? 'View Manifest Instructions' : 'Hide Manifest Instructions';
                 });
             } else {
-                skillsList.innerHTML = `<div class="empty-result">No skills detected.</div>`;
+                skillsList.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.85rem;">No active skills found.</span>`;
             }
-        } catch (err) {
-            skillsList.innerHTML = `<div class="empty-result" style="color: #ef4444;">Error loading skills sidebar: ${err.message}</div>`;
+        } catch (e) {
+            skillsList.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.85rem;">Failed to load skills.</span>`;
         }
     }
+
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') runBtn.click();
+    });
 
     document.querySelectorAll('.suggestion-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             input.value = chip.getAttribute('data-prompt');
+            runBtn.click();
         });
     });
 
@@ -126,6 +131,44 @@
 
         logBox.innerHTML += `<div class="${className}">${msg}</div>`;
         logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    let currentStreamingEl = null;
+    window.addEventListener(CallbackEvents.eventDispatch, (e) => {
+        const payload = e.detail;
+        const emptyMsg = logBox.querySelector('.empty-result');
+        if (emptyMsg) {
+            logBox.innerHTML = '';
+        }
+
+        if (payload.event === CallbackEvents.llmStart) {
+            if (currentStreamingEl) currentStreamingEl.remove();
+            currentStreamingEl = document.createElement('div');
+            currentStreamingEl.className = 'log-entry thought';
+            currentStreamingEl.style.opacity = '0.85';
+            currentStreamingEl.style.borderLeftColor = 'var(--accent-color)';
+            currentStreamingEl.style.fontStyle = 'italic';
+            currentStreamingEl.textContent = '⚡ Live Reasoning: ';
+            logBox.appendChild(currentStreamingEl);
+            logBox.scrollTop = logBox.scrollHeight;
+        } else if (payload.event === CallbackEvents.llmNewToken) {
+            if (!currentStreamingEl) {
+                currentStreamingEl = document.createElement('div');
+                currentStreamingEl.className = 'log-entry thought';
+                currentStreamingEl.style.opacity = '0.85';
+                currentStreamingEl.style.borderLeftColor = 'var(--accent-color)';
+                currentStreamingEl.style.fontStyle = 'italic';
+                currentStreamingEl.textContent = '⚡ Live Reasoning: ';
+                logBox.appendChild(currentStreamingEl);
+            }
+            currentStreamingEl.textContent += payload.token;
+            logBox.scrollTop = logBox.scrollHeight;
+        } else if (payload.event === CallbackEvents.llmEnd) {
+            if (currentStreamingEl) {
+                currentStreamingEl.remove();
+                currentStreamingEl = null;
+            }
+        }
     });
 
     async function init() {

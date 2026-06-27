@@ -8,3 +8,4 @@ export * from './tool-retriever.js';
 export * from './utils.js';
 export * from './prompt-chain-host.js';
 export * from './prompt-chain-worker.js';
+export * from './callbacks.js';

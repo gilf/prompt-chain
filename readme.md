@@ -22,13 +22,17 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 - **Complex Structured Tool Schemas (Multi-Parameter Tools)**:
   - Tools extend `Runnable` and accept structured JSON Schema parameter definitions. Supports both legacy string inputs and complex multi-parameter objects (e.g., `bookFlight({ origin: "NYC", dest: "LAX", passengers: 2 })`).
   - Automatically validates required arguments prior to execution and generates precise self-correction feedback observations when parameters are missing.
-- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays the real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside the final response.
+- **Event Callbacks & Token-by-Token Streaming**:
+  - Implements a global `CallbackManager` emitting structured lifecycle hooks (`on_chain_start`, `on_llm_start`, `on_llm_new_token`, `on_tool_start`, etc.).
+  - Uses Chrome's `session.promptStreaming()` API across the Web Worker boundary to render live, token-by-token reasoning updates in the UI.
+- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside live token generation.
 
 ---
 
 ## File Directory & Architecture
 
 - **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, and loaded skills indicators.
+- **[callbacks.js](file:///c:/Lectures/Demo/src/callbacks.js)**: Global `CallbackManager` for structured event emitting and cross-thread token streaming.
 - **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
 - **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`).
 - **[my-agent.js](file:///c:/Lectures/Demo/src/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.

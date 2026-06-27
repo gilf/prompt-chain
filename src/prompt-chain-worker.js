@@ -1,4 +1,4 @@
-import { MessageContext } from "./consts.js";
+import { MessageContext, CallbackEvents } from "./consts.js";
 import { AgentMemory } from "./agent-memory.js";
 import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
@@ -6,9 +6,11 @@ import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory } from "./utils.js";
 import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding } from "./runnable.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
+import { CallbackManager } from "./callbacks.js";
 
 export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
+export { CallbackManager };
 
 export class Tool extends Runnable {
     constructor(name, description, executeFn, schema = null) {
@@ -44,15 +46,24 @@ export class LLMRunnable extends Runnable {
 export class JSONOutputParserRunnable extends Runnable {
     async invoke(responseText, config = {}) {
         try {
-            return { success: true, parsed: JSON.parse(responseText) };
+            let cleanText = (responseText || "").trim();
+            if (cleanText.startsWith("```json")) {
+                cleanText = cleanText.slice(7).trim();
+            } else if (cleanText.startsWith("```")) {
+                cleanText = cleanText.slice(3).trim();
+            }
+            if (cleanText.endsWith("```")) {
+                cleanText = cleanText.slice(0, -3).trim();
+            }
+            return { success: true, parsed: JSON.parse(cleanText) };
         } catch (e) {
-            return { success: false, error: "Invalid JSON format received. You must respond strictly in JSON syntax." };
+            return { success: false, error: `Invalid JSON format received (${e.message}). You must respond strictly in JSON syntax.` };
         }
     }
 }
 
 export class ReActAgentExecutor extends Runnable {
-    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain }) {
+    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager }) {
         super();
         this.tools = tools;
         this.skills = skills;
@@ -63,9 +74,12 @@ export class ReActAgentExecutor extends Runnable {
         this.inferenceStepChain = inferenceStepChain;
         this.askLLM = askLLM;
         this.logToMain = logToMain;
+        this.callbackManager = callbackManager;
     }
 
     async invoke({ userPrompt, sessionId }) {
+        this.callbackManager?.dispatch(CallbackEvents.chainStart, { userPrompt, sessionId });
+
         let isComplete = false;
         let finalResult = "";
         let loopCount = 0;
@@ -97,6 +111,7 @@ export class ReActAgentExecutor extends Runnable {
         while (!isComplete && loopCount < 7) {
             loopCount++;
 
+            this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
             const stepResult = await this.inferenceStepChain.invoke(chainInput);
 
             if (!stepResult.success) {
@@ -121,6 +136,7 @@ export class ReActAgentExecutor extends Runnable {
             else if (lookupToolName && lookupToolName !== "none" && toolsMap.has(lookupToolName)) {
                 const inputLogStr = typeof response.toolInput === "object" ? JSON.stringify(response.toolInput) : response.toolInput;
                 this.logToMain(`Action: Running ${response.toolName} with input ${inputLogStr}`);
+                this.callbackManager?.dispatch(CallbackEvents.toolStart, { toolName: response.toolName, toolInput: response.toolInput });
 
                 const tool = toolsMap.get(lookupToolName);
                 let toolResult;
@@ -149,6 +165,7 @@ export class ReActAgentExecutor extends Runnable {
                 if (success) {
                     currentTurnLog += `Action: ${response.toolName}(${inputLogStr})\nObservation: ${toolResult}\n`;
                     this.logToMain(`Observation: ${toolResult}`);
+                    this.callbackManager?.dispatch(CallbackEvents.toolEnd, { toolName: response.toolName, toolResult });
                     chainInput = `Observation from ${response.toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`;
                 }
             }
@@ -167,13 +184,16 @@ export class ReActAgentExecutor extends Runnable {
             await this.memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
         }
 
-        return finalResult || "Error: Reached maximum iterations.";
+        const finalOutput = finalResult || "Error: Reached maximum iterations.";
+        this.callbackManager?.dispatch(CallbackEvents.chainEnd, { finalOutput });
+        return finalOutput;
     }
 }
 
-export function createAgentWorker(toolsOrRunnable, skillsArray = []) {
+export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null) {
     let msgId = 0;
     const resolvers = new Map();
+    const callbackManager = callbacks instanceof CallbackManager ? callbacks : new CallbackManager();
 
     const memory = new AgentMemory();
 
@@ -230,14 +250,18 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = []) {
             promptTemplate,
             inferenceStepChain,
             askLLM,
-            logToMain
+            logToMain,
+            callbackManager
         });
     }
 
     self.addEventListener('message', async (e) => {
         const { id, type, payload } = e.data;
 
-        if (type === MessageContext.llmResponse) {
+        if (type === MessageContext.llmStreamToken) {
+            callbackManager.dispatch(CallbackEvents.llmNewToken, { token: payload });
+        } else if (type === MessageContext.llmResponse) {
+            callbackManager.dispatch(CallbackEvents.llmEnd, { response: payload });
             resolvers.get(id)?.resolve(payload);
             resolvers.delete(id);
         } else if (type === MessageContext.llmError) {
