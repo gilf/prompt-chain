@@ -19,6 +19,9 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/messages.js).
   - Uses [agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js) to persist object-oriented message schemas directly in **IndexedDB**.
   - Implements automatic conversation summarization (defined in [utils.js](file:///c:/Lectures/Demo/src/utils.js)) once the chat history exceeds 5 turns, ensuring the context window remains optimized.
+- **Complex Structured Tool Schemas (Multi-Parameter Tools)**:
+  - Tools extend `Runnable` and accept structured JSON Schema parameter definitions. Supports both legacy string inputs and complex multi-parameter objects (e.g., `bookFlight({ origin: "NYC", dest: "LAX", passengers: 2 })`).
+  - Automatically validates required arguments prior to execution and generates precise self-correction feedback observations when parameters are missing.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays the real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside the final response.
 
 ---
