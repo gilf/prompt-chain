@@ -10,11 +10,23 @@ import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from
 export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 
-export class Tool {
-    constructor(name, description, executeFn) {
+export class Tool extends Runnable {
+    constructor(name, description, executeFn, schema = null) {
+        super();
         this.name = name;
         this.description = description;
         this.executeFn = executeFn;
+        this.schema = schema;
+    }
+
+    async invoke(input, config = {}) {
+        if (this.schema && Array.isArray(this.schema.required) && typeof input === "object" && input !== null) {
+            const missing = this.schema.required.filter(key => !(key in input));
+            if (missing.length > 0) {
+                throw new Error(`Tool '${this.name}' missing required parameter(s): ${missing.join(", ")}`);
+            }
+        }
+        return await runWithTimeout(this.executeFn, input, config.timeoutMs || 3000);
     }
 }
 
@@ -77,7 +89,7 @@ export class ReActAgentExecutor extends Runnable {
             }
         }
         
-        const toolsMap = new Map(relevantTools.map(t => [t.name, t]));
+        const toolsMap = new Map(relevantTools.map(t => [t.name.toLowerCase(), t]));
 
         let currentTurnLog = `User: ${userPrompt}\n`;
         let chainInput = { relevantTools, historyTurns, userPrompt, summary: conversationSummary, skillInstructions };
@@ -99,15 +111,18 @@ export class ReActAgentExecutor extends Runnable {
                 currentTurnLog += `Thought: ${response.thought}\n`;
             }
 
+            const lookupToolName = (response.toolName || "").toLowerCase();
+
             if (response.finalAnswer && response.finalAnswer.trim() !== "") {
                 finalResult = response.finalAnswer;
                 currentTurnLog += `Assistant: ${response.finalAnswer}\n`;
                 isComplete = true;
             }
-            else if (response.toolName && response.toolName !== "none" && toolsMap.has(response.toolName)) {
-                this.logToMain(`Action: Running ${response.toolName} with input "${response.toolInput}"`);
+            else if (lookupToolName && lookupToolName !== "none" && toolsMap.has(lookupToolName)) {
+                const inputLogStr = typeof response.toolInput === "object" ? JSON.stringify(response.toolInput) : response.toolInput;
+                this.logToMain(`Action: Running ${response.toolName} with input ${inputLogStr}`);
 
-                const tool = toolsMap.get(response.toolName);
+                const tool = toolsMap.get(lookupToolName);
                 let toolResult;
                 let success = false;
                 let retryCount = 0;
@@ -115,7 +130,7 @@ export class ReActAgentExecutor extends Runnable {
 
                 while (retryCount <= maxRetries && !success) {
                     try {
-                        toolResult = await runWithTimeout(tool.executeFn, response.toolInput, 3000);
+                        toolResult = await tool.invoke(response.toolInput);
                         success = true;
                     } catch (err) {
                         if (isRecoverableError(err) && retryCount < maxRetries) {
@@ -123,7 +138,7 @@ export class ReActAgentExecutor extends Runnable {
                             this.logToMain(`Observation: Tool timed out. Retrying...`);
                             await delay(1000);
                         } else {
-                            currentTurnLog += `Action: ${response.toolName}("${response.toolInput}")\nObservation: Tool failed with error: ${err.message}\n`;
+                            currentTurnLog += `Action: ${response.toolName}(${inputLogStr})\nObservation: Tool failed with error: ${err.message}\n`;
                             this.logToMain(`Observation: Tool failed with error: ${err.message}`);
                             chainInput = `Observation: Tool '${response.toolName}' failed because: ${err.message}. Please correct the input/parameters, try a different approach, or check tool availability, and try again.`;
                             break;
@@ -132,7 +147,7 @@ export class ReActAgentExecutor extends Runnable {
                 }
 
                 if (success) {
-                    currentTurnLog += `Action: ${response.toolName}("${response.toolInput}")\nObservation: ${toolResult}\n`;
+                    currentTurnLog += `Action: ${response.toolName}(${inputLogStr})\nObservation: ${toolResult}\n`;
                     this.logToMain(`Observation: ${toolResult}`);
                     chainInput = `Observation from ${response.toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`;
                 }
@@ -167,7 +182,7 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = []) {
         "properties": {
             "thought": { "type": "string" },
             "toolName": { "type": "string" },
-            "toolInput": { "type": "string" },
+            "toolInput": { "type": ["string", "object", "number", "boolean", "array"] },
             "finalAnswer": { "type": "string" }
         },
         "required": ["thought", "toolName", "toolInput", "finalAnswer"]
