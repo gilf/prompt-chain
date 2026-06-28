@@ -33,6 +33,7 @@
                 <div class="suggestion-chip" data-prompt="What is 542 multiplied by 13?">Calculate 542 * 13</div>
                 <div class="suggestion-chip" data-prompt="Book 2 flight tickets from NYC to LAX.">Book Flight (NYC ✈️ LAX)</div>
                 <div class="suggestion-chip" data-prompt="Please reserve 4 flight tickets from LHR to JFK.">Book Flight (LHR ✈️ JFK)</div>
+                <div class="suggestion-chip" data-prompt="I am planning a very long multi-step travel itinerary across multiple cities: first evaluate 542 * 13 for our budget calculation, then check the weather in Tokyo, book 2 flights from NYC to LAX, and summarize all observations into a comprehensive report.">Long Context Scenario (Token Buffer Test)</div>
             </div>
 
             <div class="controls">
@@ -168,6 +169,14 @@
                 currentStreamingEl.remove();
                 currentStreamingEl = null;
             }
+        } else if (payload.event === CallbackEvents.contextOverflow) {
+            const warnEl = document.createElement('div');
+            warnEl.className = 'log-entry system';
+            warnEl.style.color = '#f59e0b';
+            warnEl.style.borderColor = '#f59e0b';
+            warnEl.textContent = `⚠️ Token Buffer Alert: ${payload.data.warning}`;
+            logBox.appendChild(warnEl);
+            logBox.scrollTop = logBox.scrollHeight;
         }
     });
 

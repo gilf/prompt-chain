@@ -3,6 +3,10 @@ export const MessageContext = {
     llmStreamToken: 'llm_stream_token',
     llmResponse: 'llm_response',
     llmError: 'llm_error',
+    llmMeasureContext: 'llm_measure_context',
+    llmMeasureResponse: 'llm_measure_response',
+    llmContextStats: 'llm_context_stats',
+    llmStatsResponse: 'llm_stats_response',
     agentLog: 'agent_log',
     agentCallbackEvent: 'agent_callback_event',
     agentComplete: 'agent_complete',
@@ -19,5 +23,6 @@ export const CallbackEvents = {
     toolStart: 'on_tool_start',
     toolEnd: 'on_tool_end',
     toolError: 'on_tool_error',
+    contextOverflow: 'on_context_overflow',
     eventDispatch: 'agent_callback'
 };

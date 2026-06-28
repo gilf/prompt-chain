@@ -29,6 +29,10 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 - **Event Callbacks & Token-by-Token Streaming**:
   - Implements a global `CallbackManager` emitting structured lifecycle hooks (`on_chain_start`, `on_llm_start`, `on_llm_new_token`, `on_tool_start`, etc.).
   - Uses Chrome's `session.promptStreaming()` API across the Web Worker boundary to render live, token-by-token reasoning updates in the UI.
+- **Dynamic Context Management & Rolling Summarization (`RunnableTokenBuffer`)**:
+  - Bridges Chrome Prompt API token monitoring (`session.measureContextUsage()`, `session.contextUsage`, `session.contextWindow`) across the Web Worker boundary.
+  - Features `RunnableTokenBuffer` LCEL primitive with a configurable watermark threshold (default **85%** of context window capacity).
+  - Automatically truncates verbose single-turn tool observations and triggers rolling summarization of past conversation turns to ensure continuous ReAct loops without quota errors.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside live token generation.
 
 ---

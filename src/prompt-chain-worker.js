@@ -3,12 +3,12 @@ import { AgentMemory } from "./agent-memory.js";
 import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
 import { SkillRetriever } from "./skill-retriever.js";
-import { isRecoverableError, runWithTimeout, delay, compressHistory } from "./utils.js";
-import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding } from "./runnable.js";
+import { isRecoverableError, runWithTimeout, delay, compressHistory, pruneObservation } from "./utils.js";
+import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer } from "./runnable.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 import { CallbackManager } from "./callbacks.js";
 
-export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding };
+export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 export { CallbackManager };
 
@@ -63,7 +63,7 @@ export class JSONOutputParserRunnable extends Runnable {
 }
 
 export class ReActAgentExecutor extends Runnable {
-    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager }) {
+    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager, measureContextUsage = null, getContextStats = null, thresholdRatio = 0.85 }) {
         super();
         this.tools = tools;
         this.skills = skills;
@@ -75,6 +75,9 @@ export class ReActAgentExecutor extends Runnable {
         this.askLLM = askLLM;
         this.logToMain = logToMain;
         this.callbackManager = callbackManager;
+        this.measureContextUsage = measureContextUsage;
+        this.getContextStats = getContextStats;
+        this.thresholdRatio = thresholdRatio;
     }
 
     async invoke({ userPrompt, sessionId }) {
@@ -180,7 +183,14 @@ export class ReActAgentExecutor extends Runnable {
         if (finalResult) {
             historyTurns.push(new HumanMessage(userPrompt));
             historyTurns.push(new AIMessage(finalResult));
-            const compressionResult = await compressHistory(historyTurns, conversationSummary, this.askLLM, this.logToMain);
+            let maxTokens = 3400;
+            if (typeof this.getContextStats === 'function') {
+                try {
+                    const stats = await this.getContextStats();
+                    if (stats && stats.window) maxTokens = Math.floor(stats.window * this.thresholdRatio);
+                } catch (e) {}
+            }
+            const compressionResult = await compressHistory(historyTurns, conversationSummary, this.askLLM, this.logToMain, { measureTokensFn: this.measureContextUsage, maxTokens, threshold: 5, recency: 2 });
             await this.memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
         }
 
@@ -190,7 +200,7 @@ export class ReActAgentExecutor extends Runnable {
     }
 }
 
-export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null) {
+export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null, options = {}) {
     let msgId = 0;
     const resolvers = new Map();
     const callbackManager = callbacks instanceof CallbackManager ? callbacks : new CallbackManager();
@@ -216,6 +226,22 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
         });
     }
 
+    function measureContextUsage(input) {
+        return new Promise((resolve, reject) => {
+            const id = ++msgId;
+            resolvers.set(id, { resolve, reject });
+            self.postMessage({ id, type: MessageContext.llmMeasureContext, payload: { input } });
+        });
+    }
+
+    function getContextStats() {
+        return new Promise((resolve, reject) => {
+            const id = ++msgId;
+            resolvers.set(id, { resolve, reject });
+            self.postMessage({ id, type: MessageContext.llmContextStats, payload: {} });
+        });
+    }
+
     function logToMain(message) {
         self.postMessage({ id: 0, type: MessageContext.agentLog, payload: message });
     }
@@ -230,6 +256,13 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
         const promptTemplate = new PromptTemplate();
         
         const llmRunnable = new LLMRunnable(askLLM, agentSchema);
+        const bufferedLLMRunnable = new RunnableTokenBuffer({
+            boundRunnable: llmRunnable,
+            measureTokensFn: measureContextUsage,
+            getStatsFn: getContextStats,
+            thresholdRatio: options?.thresholdRatio ?? 0.85,
+            pruneObservationFn: pruneObservation
+        });
         const parserRunnable = new JSONOutputParserRunnable();
         
         const inferenceStepChain = RunnableSequence.from([
@@ -237,7 +270,7 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
                 if (typeof promptInput === "string") return promptInput;
                 return await promptTemplate.invoke(promptInput);
             }),
-            llmRunnable,
+            bufferedLLMRunnable,
             parserRunnable
         ]);
 
@@ -251,7 +284,10 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
             inferenceStepChain,
             askLLM,
             logToMain,
-            callbackManager
+            callbackManager,
+            measureContextUsage,
+            getContextStats,
+            thresholdRatio: options?.thresholdRatio ?? 0.85
         });
     }
 
@@ -260,6 +296,9 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
 
         if (type === MessageContext.llmStreamToken) {
             callbackManager.dispatch(CallbackEvents.llmNewToken, { token: payload });
+        } else if (type === MessageContext.llmMeasureResponse || type === MessageContext.llmStatsResponse) {
+            resolvers.get(id)?.resolve(payload);
+            resolvers.delete(id);
         } else if (type === MessageContext.llmResponse) {
             callbackManager.dispatch(CallbackEvents.llmEnd, { response: payload });
             resolvers.get(id)?.resolve(payload);
