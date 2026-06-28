@@ -1,6 +1,6 @@
 {
   "name": "@gilfink/prompt-chain",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "On-Device Prompt API Chain Agent & Skills Platform",
   "type": "module",
   "main": "./dist/prompt-chain.umd.cjs",

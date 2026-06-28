@@ -1,13 +1,8 @@
 import { MessageContext, CallbackEvents } from "./consts.js";
 
-export class PromptChainHost {
-    constructor(workerUrl) {
-        this.worker = new Worker(workerUrl, { type: 'module' });
+export class LLMSessionManager {
+    constructor() {
         this.session = null;
-        this.callbacks = new Map();
-        this.msgId = 0;
-
-        this.worker.onmessage = this.handleWorkerMessage.bind(this);
     }
 
     async init(systemPrompt) {
@@ -28,84 +23,123 @@ export class PromptChainHost {
         }
     }
 
+    async handlePromptRequest(payload, onToken) {
+        const options = {};
+        if (payload.schema) {
+            options.responseConstraint = payload.schema;
+        }
+        if (typeof this.session.promptStreaming === 'function') {
+            const stream = this.session.promptStreaming(payload.prompt, options);
+            let fullResponse = "";
+            for await (const chunk of stream) {
+                let delta = "";
+                if (fullResponse && chunk.startsWith(fullResponse)) {
+                    delta = chunk.slice(fullResponse.length);
+                    fullResponse = chunk;
+                } else {
+                    delta = chunk;
+                    fullResponse += chunk;
+                }
+                if (delta) {
+                    onToken(delta);
+                }
+            }
+            return fullResponse;
+        } else {
+            return await this.session.prompt(payload.prompt, options);
+        }
+    }
+
+    async measureContextUsage(input) {
+        if (typeof this.session?.measureContextUsage === 'function') {
+            return await this.session.measureContextUsage(input);
+        } else if (typeof this.session?.measureInputUsage === 'function') {
+            return await this.session.measureInputUsage(input);
+        } else {
+            const str = typeof input === 'string' ? input : JSON.stringify(input || '');
+            return Math.ceil(str.length / 4);
+        }
+    }
+
+    getContextStats() {
+        const usage = this.session?.contextUsage ?? this.session?.inputUsage ?? 0;
+        const windowQuota = this.session?.contextWindow ?? this.session?.inputQuota ?? 4096;
+        return { usage, window: windowQuota };
+    }
+}
+
+export class PromptChainHost {
+    constructor(workerUrl) {
+        this.worker = new Worker(workerUrl, { type: 'module' });
+        this.llmManager = new LLMSessionManager();
+        this.callbacks = new Map();
+        this.msgId = 0;
+
+        this.messageHandlers = {
+            [MessageContext.llmRequest]: async (id, payload) => {
+                try {
+                    const response = await this.llmManager.handlePromptRequest(payload, (delta) => {
+                        this.worker.postMessage({ id, type: MessageContext.llmStreamToken, payload: delta });
+                    });
+                    this.worker.postMessage({ id, type: MessageContext.llmResponse, payload: response });
+                } catch (err) {
+                    this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
+                }
+            },
+            [MessageContext.llmMeasureContext]: async (id, payload) => {
+                try {
+                    const count = await this.llmManager.measureContextUsage(payload.input);
+                    this.worker.postMessage({ id, type: MessageContext.llmMeasureResponse, payload: { count } });
+                } catch (err) {
+                    this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
+                }
+            },
+            [MessageContext.llmContextStats]: async (id) => {
+                try {
+                    const stats = this.llmManager.getContextStats();
+                    this.worker.postMessage({ id, type: MessageContext.llmStatsResponse, payload: stats });
+                } catch (err) {
+                    this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
+                }
+            },
+            [MessageContext.agentLog]: (id, payload) => {
+                window.dispatchEvent(new CustomEvent(MessageContext.agentLog, { detail: payload }));
+            },
+            [MessageContext.agentCallbackEvent]: (id, payload) => {
+                window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: payload }));
+            },
+            [MessageContext.agentComplete]: (id, payload) => {
+                const cb = this.callbacks.get(id);
+                if (cb) {
+                    cb.resolve(payload);
+                }
+                this.callbacks.delete(id);
+            },
+            [MessageContext.agentError]: (id, payload) => {
+                const cb = this.callbacks.get(id);
+                if (cb) {
+                    cb.reject(new Error(payload));
+                }
+                this.callbacks.delete(id);
+            }
+        };
+
+        this.worker.onmessage = this.handleWorkerMessage.bind(this);
+    }
+
+    get session() {
+        return this.llmManager.session;
+    }
+
+    async init(systemPrompt) {
+        await this.llmManager.init(systemPrompt);
+    }
+
     async handleWorkerMessage(e) {
         const { id, type, payload } = e.data;
-
-        if (type === MessageContext.llmRequest) {
-            try {
-                const options = {};
-                if (payload.schema) {
-                    options.responseConstraint = payload.schema;
-                }
-                if (typeof this.session.promptStreaming === 'function') {
-                    const stream = this.session.promptStreaming(payload.prompt, options);
-                    let fullResponse = "";
-                    for await (const chunk of stream) {
-                        let delta = "";
-                        if (fullResponse && chunk.startsWith(fullResponse)) {
-                            delta = chunk.slice(fullResponse.length);
-                            fullResponse = chunk;
-                        } else {
-                            delta = chunk;
-                            fullResponse += chunk;
-                        }
-                        if (delta) {
-                            this.worker.postMessage({ id, type: MessageContext.llmStreamToken, payload: delta });
-                        }
-                    }
-                    this.worker.postMessage({ id, type: MessageContext.llmResponse, payload: fullResponse });
-                } else {
-                    const responseText = await this.session.prompt(payload.prompt, options);
-                    this.worker.postMessage({ id, type: MessageContext.llmResponse, payload: responseText });
-                }
-            } catch (err) {
-                this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
-            }
-        }
-        else if (type === MessageContext.llmMeasureContext) {
-            try {
-                let count;
-                if (typeof this.session?.measureContextUsage === 'function') {
-                    count = await this.session.measureContextUsage(payload.input);
-                } else if (typeof this.session?.measureInputUsage === 'function') {
-                    count = await this.session.measureInputUsage(payload.input);
-                } else {
-                    const str = typeof payload.input === 'string' ? payload.input : JSON.stringify(payload.input || '');
-                    count = Math.ceil(str.length / 4);
-                }
-                this.worker.postMessage({ id, type: MessageContext.llmMeasureResponse, payload: { count } });
-            } catch (err) {
-                this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
-            }
-        }
-        else if (type === MessageContext.llmContextStats) {
-            try {
-                const usage = this.session?.contextUsage ?? this.session?.inputUsage ?? 0;
-                const windowQuota = this.session?.contextWindow ?? this.session?.inputQuota ?? 4096;
-                this.worker.postMessage({ id, type: MessageContext.llmStatsResponse, payload: { usage, window: windowQuota } });
-            } catch (err) {
-                this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
-            }
-        }
-        else if (type === MessageContext.agentLog) {
-            window.dispatchEvent(new CustomEvent(MessageContext.agentLog, { detail: payload }));
-        }
-        else if (type === MessageContext.agentCallbackEvent) {
-            window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: payload }));
-        }
-        else if (type === MessageContext.agentComplete) {
-            const cb = this.callbacks.get(id);
-            if (cb) {
-                cb.resolve(payload);
-            }
-            this.callbacks.delete(id);
-        }
-        else if (type === MessageContext.agentError) {
-            const cb = this.callbacks.get(id);
-            if (cb) {
-                cb.reject(new Error(payload));
-            }
-            this.callbacks.delete(id);
+        const handler = this.messageHandlers[type];
+        if (handler) {
+            await handler(id, payload);
         }
     }
 

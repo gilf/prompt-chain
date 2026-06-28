@@ -63,7 +63,7 @@ export class JSONOutputParserRunnable extends Runnable {
 }
 
 export class ReActAgentExecutor extends Runnable {
-    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager, measureContextUsage = null, getContextStats = null, thresholdRatio = 0.85 }) {
+    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager, measureContextUsage = null, getContextStats = null, thresholdRatio = 0.85, maxIterations = 7, maxRetries = 3, retryDelayMs = 1000, defaultMaxTokens = 3400 }) {
         super();
         this.tools = tools;
         this.skills = skills;
@@ -78,17 +78,13 @@ export class ReActAgentExecutor extends Runnable {
         this.measureContextUsage = measureContextUsage;
         this.getContextStats = getContextStats;
         this.thresholdRatio = thresholdRatio;
+        this.maxIterations = maxIterations;
+        this.maxRetries = maxRetries;
+        this.retryDelayMs = retryDelayMs;
+        this.defaultMaxTokens = defaultMaxTokens;
     }
 
-    async invoke({ userPrompt, sessionId }) {
-        this.callbackManager?.dispatch(CallbackEvents.chainStart, { userPrompt, sessionId });
-
-        let isComplete = false;
-        let finalResult = "";
-        let loopCount = 0;
-
-        let { history: historyTurns, summary: conversationSummary } = await this.memory.getHistory(sessionId);
-
+    async _prepareContext(userPrompt) {
         const relevantTools = await this.toolRetriever.getRelevantTools(userPrompt, 3);
         const relevantSkills = await this.skillRetriever.getRelevantSkills(userPrompt, 3);
         
@@ -107,11 +103,73 @@ export class ReActAgentExecutor extends Runnable {
         }
         
         const toolsMap = new Map(relevantTools.map(t => [t.name.toLowerCase(), t]));
+        return { relevantTools, skillInstructions, toolsMap };
+    }
+
+    async _executeToolWithRetry(tool, toolName, toolInput, inputLogStr) {
+        let toolResult;
+        let success = false;
+        let retryCount = 0;
+
+        while (retryCount <= this.maxRetries && !success) {
+            try {
+                toolResult = await tool.invoke(toolInput);
+                success = true;
+            } catch (err) {
+                if (isRecoverableError(err) && retryCount < this.maxRetries) {
+                    retryCount++;
+                    this.logToMain(`Observation: Tool timed out. Retrying...`);
+                    await delay(this.retryDelayMs);
+                } else {
+                    const logStr = `Action: ${toolName}(${inputLogStr})\nObservation: Tool failed with error: ${err.message}\n`;
+                    this.logToMain(`Observation: Tool failed with error: ${err.message}`);
+                    return {
+                        success: false,
+                        logStr,
+                        nextObservation: `Observation: Tool '${toolName}' failed because: ${err.message}. Please correct the input/parameters, try a different approach, or check tool availability, and try again.`
+                    };
+                }
+            }
+        }
+
+        const logStr = `Action: ${toolName}(${inputLogStr})\nObservation: ${toolResult}\n`;
+        this.logToMain(`Observation: ${toolResult}`);
+        return {
+            success: true,
+            toolResult,
+            logStr,
+            nextObservation: `Observation from ${toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`
+        };
+    }
+
+    async _saveAndCompressHistory(sessionId, userPrompt, finalResult, historyTurns, conversationSummary) {
+        historyTurns.push(new HumanMessage(userPrompt));
+        historyTurns.push(new AIMessage(finalResult));
+        let maxTokens = this.defaultMaxTokens;
+        if (typeof this.getContextStats === 'function') {
+            try {
+                const stats = await this.getContextStats();
+                if (stats && stats.window) maxTokens = Math.floor(stats.window * this.thresholdRatio);
+            } catch (e) {}
+        }
+        const compressionResult = await compressHistory(historyTurns, conversationSummary, this.askLLM, this.logToMain, { measureTokensFn: this.measureContextUsage, maxTokens, threshold: 5, recency: 2 });
+        await this.memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
+    }
+
+    async invoke({ userPrompt, sessionId }) {
+        this.callbackManager?.dispatch(CallbackEvents.chainStart, { userPrompt, sessionId });
+
+        let isComplete = false;
+        let finalResult = "";
+        let loopCount = 0;
+
+        let { history: historyTurns, summary: conversationSummary } = await this.memory.getHistory(sessionId);
+        const { relevantTools, skillInstructions, toolsMap } = await this._prepareContext(userPrompt);
 
         let currentTurnLog = `User: ${userPrompt}\n`;
         let chainInput = { relevantTools, historyTurns, userPrompt, summary: conversationSummary, skillInstructions };
 
-        while (!isComplete && loopCount < 7) {
+        while (!isComplete && loopCount < this.maxIterations) {
             loopCount++;
 
             this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
@@ -142,35 +200,12 @@ export class ReActAgentExecutor extends Runnable {
                 this.callbackManager?.dispatch(CallbackEvents.toolStart, { toolName: response.toolName, toolInput: response.toolInput });
 
                 const tool = toolsMap.get(lookupToolName);
-                let toolResult;
-                let success = false;
-                let retryCount = 0;
-                const maxRetries = 3;
-
-                while (retryCount <= maxRetries && !success) {
-                    try {
-                        toolResult = await tool.invoke(response.toolInput);
-                        success = true;
-                    } catch (err) {
-                        if (isRecoverableError(err) && retryCount < maxRetries) {
-                            retryCount++;
-                            this.logToMain(`Observation: Tool timed out. Retrying...`);
-                            await delay(1000);
-                        } else {
-                            currentTurnLog += `Action: ${response.toolName}(${inputLogStr})\nObservation: Tool failed with error: ${err.message}\n`;
-                            this.logToMain(`Observation: Tool failed with error: ${err.message}`);
-                            chainInput = `Observation: Tool '${response.toolName}' failed because: ${err.message}. Please correct the input/parameters, try a different approach, or check tool availability, and try again.`;
-                            break;
-                        }
-                    }
+                const execResult = await this._executeToolWithRetry(tool, response.toolName, response.toolInput, inputLogStr);
+                currentTurnLog += execResult.logStr;
+                if (execResult.success) {
+                    this.callbackManager?.dispatch(CallbackEvents.toolEnd, { toolName: response.toolName, toolResult: execResult.toolResult });
                 }
-
-                if (success) {
-                    currentTurnLog += `Action: ${response.toolName}(${inputLogStr})\nObservation: ${toolResult}\n`;
-                    this.logToMain(`Observation: ${toolResult}`);
-                    this.callbackManager?.dispatch(CallbackEvents.toolEnd, { toolName: response.toolName, toolResult });
-                    chainInput = `Observation from ${response.toolName}: ${toolResult}\nGiven this observation, output your next step as JSON:`;
-                }
+                chainInput = execResult.nextObservation;
             }
             else if (response.toolName === "none" || response.toolName === "") {
                 chainInput = `Observation: You set toolName to "none" but omitted a finalAnswer. Provide your final answer text in the JSON.`;
@@ -181,17 +216,7 @@ export class ReActAgentExecutor extends Runnable {
         }
 
         if (finalResult) {
-            historyTurns.push(new HumanMessage(userPrompt));
-            historyTurns.push(new AIMessage(finalResult));
-            let maxTokens = 3400;
-            if (typeof this.getContextStats === 'function') {
-                try {
-                    const stats = await this.getContextStats();
-                    if (stats && stats.window) maxTokens = Math.floor(stats.window * this.thresholdRatio);
-                } catch (e) {}
-            }
-            const compressionResult = await compressHistory(historyTurns, conversationSummary, this.askLLM, this.logToMain, { measureTokensFn: this.measureContextUsage, maxTokens, threshold: 5, recency: 2 });
-            await this.memory.saveHistory(sessionId, compressionResult.historyTurns, compressionResult.updatedSummary);
+            await this._saveAndCompressHistory(sessionId, userPrompt, finalResult, historyTurns, conversationSummary);
         }
 
         const finalOutput = finalResult || "Error: Reached maximum iterations.";
@@ -200,12 +225,86 @@ export class ReActAgentExecutor extends Runnable {
     }
 }
 
-export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null, options = {}) {
-    let msgId = 0;
-    const resolvers = new Map();
-    const callbackManager = callbacks instanceof CallbackManager ? callbacks : new CallbackManager();
+export class WorkerRPCClient {
+    constructor() {
+        this.msgId = 0;
+        this.resolvers = new Map();
+    }
 
+    request(type, payload) {
+        return new Promise((resolve, reject) => {
+            const id = ++this.msgId;
+            this.resolvers.set(id, { resolve, reject });
+            self.postMessage({ id, type, payload });
+        });
+    }
+
+    handleResponse(id, payload, isError = false) {
+        const resolver = this.resolvers.get(id);
+        if (resolver) {
+            if (isError) {
+                resolver.reject(new Error(payload));
+            } else {
+                resolver.resolve(payload);
+            }
+            this.resolvers.delete(id);
+        }
+    }
+
+    logToMain(message) {
+        self.postMessage({ id: 0, type: MessageContext.agentLog, payload: message });
+    }
+}
+
+export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, measureContextUsage, getContextStats, logToMain, callbackManager, memory, options, agentSchema) {
+    const toolRetriever = new ToolRetriever(toolsArray);
+    const skillRetriever = new SkillRetriever(skillsArray);
+    const promptTemplate = new PromptTemplate();
+    
+    const llmRunnable = new LLMRunnable(askLLM, agentSchema);
+    const bufferedLLMRunnable = new RunnableTokenBuffer({
+        boundRunnable: llmRunnable,
+        measureTokensFn: measureContextUsage,
+        getStatsFn: getContextStats,
+        thresholdRatio: options?.thresholdRatio ?? 0.85,
+        pruneObservationFn: pruneObservation
+    });
+    const parserRunnable = new JSONOutputParserRunnable();
+    
+    const inferenceStepChain = RunnableSequence.from([
+        new RunnableLambda(async (promptInput) => {
+            if (typeof promptInput === "string") return promptInput;
+            return await promptTemplate.invoke(promptInput);
+        }),
+        bufferedLLMRunnable,
+        parserRunnable
+    ]);
+
+    return new ReActAgentExecutor({
+        tools: toolsArray,
+        skills: skillsArray,
+        memory,
+        toolRetriever,
+        skillRetriever,
+        promptTemplate,
+        inferenceStepChain,
+        askLLM,
+        logToMain,
+        callbackManager,
+        measureContextUsage,
+        getContextStats,
+        thresholdRatio: options?.thresholdRatio ?? 0.85,
+        maxIterations: options?.maxIterations,
+        maxRetries: options?.maxRetries,
+        retryDelayMs: options?.retryDelayMs,
+        defaultMaxTokens: options?.defaultMaxTokens
+    });
+}
+
+export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null, options = {}) {
+    const callbackManager = callbacks instanceof CallbackManager ? callbacks : new CallbackManager();
     const memory = new AgentMemory();
+    const rpcClient = new WorkerRPCClient();
 
     const agentSchema = {
         "type": "object",
@@ -218,77 +317,17 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
         "required": ["thought", "toolName", "toolInput", "finalAnswer"]
     };
 
-    function askLLM(prompt, schema = agentSchema) {
-        return new Promise((resolve, reject) => {
-            const id = ++msgId;
-            resolvers.set(id, { resolve, reject });
-            self.postMessage({ id, type: MessageContext.llmRequest, payload: { prompt, schema } });
-        });
-    }
-
-    function measureContextUsage(input) {
-        return new Promise((resolve, reject) => {
-            const id = ++msgId;
-            resolvers.set(id, { resolve, reject });
-            self.postMessage({ id, type: MessageContext.llmMeasureContext, payload: { input } });
-        });
-    }
-
-    function getContextStats() {
-        return new Promise((resolve, reject) => {
-            const id = ++msgId;
-            resolvers.set(id, { resolve, reject });
-            self.postMessage({ id, type: MessageContext.llmContextStats, payload: {} });
-        });
-    }
-
-    function logToMain(message) {
-        self.postMessage({ id: 0, type: MessageContext.agentLog, payload: message });
-    }
+    const askLLM = (prompt, schema = agentSchema) => rpcClient.request(MessageContext.llmRequest, { prompt, schema });
+    const measureContextUsage = (input) => rpcClient.request(MessageContext.llmMeasureContext, { input });
+    const getContextStats = () => rpcClient.request(MessageContext.llmContextStats, {});
+    const logToMain = (msg) => rpcClient.logToMain(msg);
 
     let agentExecutor;
     if (toolsOrRunnable instanceof Runnable || typeof toolsOrRunnable?.invoke === "function") {
         agentExecutor = toolsOrRunnable;
     } else {
         const toolsArray = Array.isArray(toolsOrRunnable) ? toolsOrRunnable : [];
-        const toolRetriever = new ToolRetriever(toolsArray);
-        const skillRetriever = new SkillRetriever(skillsArray);
-        const promptTemplate = new PromptTemplate();
-        
-        const llmRunnable = new LLMRunnable(askLLM, agentSchema);
-        const bufferedLLMRunnable = new RunnableTokenBuffer({
-            boundRunnable: llmRunnable,
-            measureTokensFn: measureContextUsage,
-            getStatsFn: getContextStats,
-            thresholdRatio: options?.thresholdRatio ?? 0.85,
-            pruneObservationFn: pruneObservation
-        });
-        const parserRunnable = new JSONOutputParserRunnable();
-        
-        const inferenceStepChain = RunnableSequence.from([
-            new RunnableLambda(async (promptInput) => {
-                if (typeof promptInput === "string") return promptInput;
-                return await promptTemplate.invoke(promptInput);
-            }),
-            bufferedLLMRunnable,
-            parserRunnable
-        ]);
-
-        agentExecutor = new ReActAgentExecutor({
-            tools: toolsArray,
-            skills: skillsArray,
-            memory,
-            toolRetriever,
-            skillRetriever,
-            promptTemplate,
-            inferenceStepChain,
-            askLLM,
-            logToMain,
-            callbackManager,
-            measureContextUsage,
-            getContextStats,
-            thresholdRatio: options?.thresholdRatio ?? 0.85
-        });
+        agentExecutor = createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, measureContextUsage, getContextStats, logToMain, callbackManager, memory, options, agentSchema);
     }
 
     self.addEventListener('message', async (e) => {
@@ -296,16 +335,13 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
 
         if (type === MessageContext.llmStreamToken) {
             callbackManager.dispatch(CallbackEvents.llmNewToken, { token: payload });
-        } else if (type === MessageContext.llmMeasureResponse || type === MessageContext.llmStatsResponse) {
-            resolvers.get(id)?.resolve(payload);
-            resolvers.delete(id);
-        } else if (type === MessageContext.llmResponse) {
-            callbackManager.dispatch(CallbackEvents.llmEnd, { response: payload });
-            resolvers.get(id)?.resolve(payload);
-            resolvers.delete(id);
+        } else if (type === MessageContext.llmMeasureResponse || type === MessageContext.llmStatsResponse || type === MessageContext.llmResponse) {
+            if (type === MessageContext.llmResponse) {
+                callbackManager.dispatch(CallbackEvents.llmEnd, { response: payload });
+            }
+            rpcClient.handleResponse(id, payload);
         } else if (type === MessageContext.llmError) {
-            resolvers.get(id)?.reject(new Error(payload));
-            resolvers.delete(id);
+            rpcClient.handleResponse(id, payload, true);
         } else if (type === MessageContext.startLoop) {
             try {
                 await memory.init();

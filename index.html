@@ -208,7 +208,7 @@
         runBtn.disabled = false;
         runBtn.textContent = "Run Agent";
 
-        const sessionId = "user_chat_session_001";
+        const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : "session_" + Date.now();
 
         runBtn.addEventListener('click', async () => {
             logBox.innerHTML = '<div class="empty-result" style="color: var(--text-secondary); margin: auto;">Streaming thoughts...</div>';
