@@ -37,11 +37,39 @@ export function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function compressHistory(historyTurns, conversationSummary, askLLM, logToMain) {
-    const SUMMARIZATION_THRESHOLD = 5;
-    const RECENCY_TURNS_TO_KEEP = 2;
+export function pruneObservation(input, maxTokens = 3400) {
+    if (typeof input === 'string') {
+        const maxChars = maxTokens * 3;
+        if (input.length > maxChars) {
+            return input.slice(0, Math.floor(maxChars / 2)) + "\n...[Observation Truncated due to Token Buffer]...\n" + input.slice(-Math.floor(maxChars / 2));
+        }
+    } else if (typeof input === 'object' && input !== null && Array.isArray(input.historyTurns)) {
+        if (input.historyTurns.length > 2) {
+            return { ...input, historyTurns: input.historyTurns.slice(-2) };
+        }
+    }
+    return input;
+}
 
-    if (historyTurns.length < SUMMARIZATION_THRESHOLD) {
+export async function compressHistory(historyTurns, conversationSummary, askLLM, logToMain, options = {}) {
+    const SUMMARIZATION_THRESHOLD = options.threshold || 5;
+    const RECENCY_TURNS_TO_KEEP = options.recency || 2;
+    const forceSummarize = options.forceSummarize || false;
+
+    let shouldSummarize = historyTurns.length >= SUMMARIZATION_THRESHOLD || forceSummarize;
+    if (!shouldSummarize && typeof options.measureTokensFn === 'function' && options.maxTokens) {
+        try {
+            const currentTokens = await options.measureTokensFn(historyTurns);
+            const count = typeof currentTokens === 'number' ? currentTokens : (currentTokens?.count ?? 0);
+            if (count > options.maxTokens) {
+                shouldSummarize = true;
+            }
+        } catch (e) {
+            // Ignore measurement error
+        }
+    }
+
+    if (!shouldSummarize) {
         return { historyTurns, updatedSummary: conversationSummary };
     }
 

@@ -14,6 +14,18 @@ export class PromptChainHost {
         this.session = await LanguageModel.create({
             systemPrompt: systemPrompt
         });
+        if (this.session) {
+            const overflowHandler = () => {
+                window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: { event: CallbackEvents.contextOverflow, data: { warning: "Context window overflow warning triggered." } } }));
+            };
+            if ('oncontextoverflow' in this.session) {
+                this.session.oncontextoverflow = overflowHandler;
+            } else if ('onquotaoverflow' in this.session) {
+                this.session.onquotaoverflow = overflowHandler;
+            } else if (typeof this.session.addEventListener === 'function') {
+                this.session.addEventListener('contextoverflow', overflowHandler);
+            }
+        }
     }
 
     async handleWorkerMessage(e) {
@@ -46,6 +58,31 @@ export class PromptChainHost {
                     const responseText = await this.session.prompt(payload.prompt, options);
                     this.worker.postMessage({ id, type: MessageContext.llmResponse, payload: responseText });
                 }
+            } catch (err) {
+                this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
+            }
+        }
+        else if (type === MessageContext.llmMeasureContext) {
+            try {
+                let count;
+                if (typeof this.session?.measureContextUsage === 'function') {
+                    count = await this.session.measureContextUsage(payload.input);
+                } else if (typeof this.session?.measureInputUsage === 'function') {
+                    count = await this.session.measureInputUsage(payload.input);
+                } else {
+                    const str = typeof payload.input === 'string' ? payload.input : JSON.stringify(payload.input || '');
+                    count = Math.ceil(str.length / 4);
+                }
+                this.worker.postMessage({ id, type: MessageContext.llmMeasureResponse, payload: { count } });
+            } catch (err) {
+                this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
+            }
+        }
+        else if (type === MessageContext.llmContextStats) {
+            try {
+                const usage = this.session?.contextUsage ?? this.session?.inputUsage ?? 0;
+                const windowQuota = this.session?.contextWindow ?? this.session?.inputQuota ?? 4096;
+                this.worker.postMessage({ id, type: MessageContext.llmStatsResponse, payload: { usage, window: windowQuota } });
             } catch (err) {
                 this.worker.postMessage({ id, type: MessageContext.llmError, payload: err.message });
             }
