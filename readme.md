@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="images/prompt-chain-logo.png" alt="Prompt Chain Logo" width="400" />
+</div>
+
 # On-Device Prompt Chain Agent
 
 An interactive, on-device AI agent platform that runs autonomous loops inside a Web Worker. 
