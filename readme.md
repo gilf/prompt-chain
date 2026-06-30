@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="images/prompt-chain-logo.png" alt="Prompt Chain Logo" width="400" />
+  <img src="https://github.com/gilf/prompt-chain/blob/main/images/prompt-chain-logo.png" alt="Prompt Chain Logo" width="400" />
 </div>
 
 # On-Device Prompt Chain Agent
