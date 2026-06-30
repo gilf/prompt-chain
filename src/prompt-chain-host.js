@@ -115,6 +115,13 @@ export class PromptChainHost {
                 }
                 this.callbacks.delete(id);
             },
+            [MessageContext.agentInterrupt]: (id, payload) => {
+                const cb = this.callbacks.get(id);
+                if (cb) {
+                    cb.resolve(payload);
+                }
+                this.callbacks.delete(id);
+            },
             [MessageContext.agentError]: (id, payload) => {
                 const cb = this.callbacks.get(id);
                 if (cb) {
@@ -152,6 +159,19 @@ export class PromptChainHost {
                 id,
                 type: MessageContext.startLoop,
                 payload: { userPrompt, sessionId }
+            });
+        });
+    }
+
+    resume(checkpointId, approvedParams) {
+        return new Promise((resolve, reject) => {
+            const id = ++this.msgId;
+            this.callbacks.set(id, { resolve, reject });
+
+            this.worker.postMessage({
+                id,
+                type: MessageContext.resumeLoop,
+                payload: { checkpointId, approvedParams }
             });
         });
     }

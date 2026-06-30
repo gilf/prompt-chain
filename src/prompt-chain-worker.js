@@ -4,21 +4,22 @@ import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
 import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory, pruneObservation } from "./utils.js";
-import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer } from "./runnable.js";
+import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException } from "./runnable.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 import { CallbackManager } from "./callbacks.js";
 
-export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer };
+export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 export { CallbackManager };
 
 export class Tool extends Runnable {
-    constructor(name, description, executeFn, schema = null) {
+    constructor(name, description, executeFn, schema = null, options = {}) {
         super();
         this.name = name;
         this.description = description;
         this.executeFn = executeFn;
         this.schema = schema;
+        this.requiresApproval = Boolean(options.requiresApproval);
     }
 
     async invoke(input, config = {}) {
@@ -195,11 +196,160 @@ export class ReActAgentExecutor extends Runnable {
                 isComplete = true;
             }
             else if (lookupToolName && lookupToolName !== "none" && toolsMap.has(lookupToolName)) {
+                const tool = toolsMap.get(lookupToolName);
+                if (tool.requiresApproval) {
+                    const checkpointId = `chk_${sessionId}_${Date.now()}`;
+                    const safeChainInput = typeof chainInput === "object" && chainInput !== null ? { isInitialObject: true } : chainInput;
+                    const checkpointData = {
+                        sessionId,
+                        userPrompt,
+                        loopCount,
+                        currentTurnLog,
+                        chainInput: safeChainInput,
+                        historyTurns: historyTurns.map(item => typeof item?.toJSON === "function" ? item.toJSON() : item),
+                        conversationSummary,
+                        pendingToolName: response.toolName,
+                        pendingToolInput: response.toolInput
+                    };
+                    await this.memory.saveCheckpoint(checkpointId, checkpointData);
+                    this.logToMain(`System: Execution interrupted. Human approval required for tool '${response.toolName}'.`);
+                    this.callbackManager?.dispatch(CallbackEvents.userApprovalRequired, {
+                        checkpointId,
+                        sessionId,
+                        toolName: response.toolName,
+                        toolInput: response.toolInput
+                    });
+                    return { interrupted: true, checkpointId, toolName: response.toolName, toolInput: response.toolInput };
+                }
+
                 const inputLogStr = typeof response.toolInput === "object" ? JSON.stringify(response.toolInput) : response.toolInput;
                 this.logToMain(`Action: Running ${response.toolName} with input ${inputLogStr}`);
                 this.callbackManager?.dispatch(CallbackEvents.toolStart, { toolName: response.toolName, toolInput: response.toolInput });
 
-                const tool = toolsMap.get(lookupToolName);
+                const execResult = await this._executeToolWithRetry(tool, response.toolName, response.toolInput, inputLogStr);
+                currentTurnLog += execResult.logStr;
+                if (execResult.success) {
+                    this.callbackManager?.dispatch(CallbackEvents.toolEnd, { toolName: response.toolName, toolResult: execResult.toolResult });
+                }
+                chainInput = execResult.nextObservation;
+            }
+            else if (response.toolName === "none" || response.toolName === "") {
+                chainInput = `Observation: You set toolName to "none" but omitted a finalAnswer. Provide your final answer text in the JSON.`;
+            }
+            else {
+                chainInput = `Observation: Tool '${response.toolName}' is not loaded. Select from available tools or use 'none'.`;
+            }
+        }
+
+        if (finalResult) {
+            await this._saveAndCompressHistory(sessionId, userPrompt, finalResult, historyTurns, conversationSummary);
+        }
+
+        const finalOutput = finalResult || "Error: Reached maximum iterations.";
+        this.callbackManager?.dispatch(CallbackEvents.chainEnd, { finalOutput });
+        return finalOutput;
+    }
+
+    async resume({ checkpointId, approvedParams, memory, askLLM, logToMain }) {
+        if (memory) this.memory = memory;
+        if (askLLM) this.askLLM = askLLM;
+        if (logToMain) this.logToMain = logToMain;
+
+        const checkpoint = await this.memory.getCheckpoint(checkpointId);
+        if (!checkpoint) {
+            throw new Error(`Checkpoint '${checkpointId}' not found.`);
+        }
+
+        const { sessionId, userPrompt } = checkpoint;
+        let loopCount = checkpoint.loopCount || 0;
+        let currentTurnLog = checkpoint.currentTurnLog || "";
+        let historyTurns = checkpoint.historyTurns || [];
+        let conversationSummary = checkpoint.conversationSummary || "";
+        let chainInput = checkpoint.chainInput;
+        const pendingToolName = checkpoint.pendingToolName;
+        const toolInput = approvedParams ?? checkpoint.pendingToolInput;
+
+        const { relevantTools, skillInstructions, toolsMap } = await this._prepareContext(userPrompt);
+        if (typeof chainInput === "object" && chainInput !== null && chainInput.isInitialObject) {
+            chainInput = { relevantTools, historyTurns, userPrompt, summary: conversationSummary, skillInstructions };
+        }
+
+        const lookupToolName = (pendingToolName || "").toLowerCase();
+        if (toolsMap.has(lookupToolName)) {
+            const tool = toolsMap.get(lookupToolName);
+            const inputLogStr = typeof toolInput === "object" ? JSON.stringify(toolInput) : toolInput;
+            this.logToMain(`Action: Resuming ${pendingToolName} with approved input ${inputLogStr}`);
+            this.callbackManager?.dispatch(CallbackEvents.toolStart, { toolName: pendingToolName, toolInput });
+
+            const execResult = await this._executeToolWithRetry(tool, pendingToolName, toolInput, inputLogStr);
+            currentTurnLog += execResult.logStr;
+            if (execResult.success) {
+                this.callbackManager?.dispatch(CallbackEvents.toolEnd, { toolName: pendingToolName, toolResult: execResult.toolResult });
+            }
+            chainInput = execResult.nextObservation;
+        }
+
+        await this.memory.deleteCheckpoint(checkpointId);
+
+        let isComplete = false;
+        let finalResult = "";
+
+        while (!isComplete && loopCount < this.maxIterations) {
+            loopCount++;
+
+            this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
+            const stepResult = await this.inferenceStepChain.invoke(chainInput);
+
+            if (!stepResult.success) {
+                chainInput = `Observation: ${stepResult.error}`;
+                continue;
+            }
+
+            const response = stepResult.parsed;
+
+            if (response.thought) {
+                this.logToMain(`Thought: ${response.thought}`);
+                currentTurnLog += `Thought: ${response.thought}\n`;
+            }
+
+            const nextLookupToolName = (response.toolName || "").toLowerCase();
+
+            if (response.finalAnswer && response.finalAnswer.trim() !== "") {
+                finalResult = response.finalAnswer;
+                currentTurnLog += `Assistant: ${response.finalAnswer}\n`;
+                isComplete = true;
+            }
+            else if (nextLookupToolName && nextLookupToolName !== "none" && toolsMap.has(nextLookupToolName)) {
+                const tool = toolsMap.get(nextLookupToolName);
+                if (tool.requiresApproval) {
+                    const newCheckpointId = `chk_${sessionId}_${Date.now()}`;
+                    const safeChainInput = typeof chainInput === "object" && chainInput !== null ? { isInitialObject: true } : chainInput;
+                    const checkpointData = {
+                        sessionId,
+                        userPrompt,
+                        loopCount,
+                        currentTurnLog,
+                        chainInput: safeChainInput,
+                        historyTurns: historyTurns.map(item => typeof item?.toJSON === "function" ? item.toJSON() : item),
+                        conversationSummary,
+                        pendingToolName: response.toolName,
+                        pendingToolInput: response.toolInput
+                    };
+                    await this.memory.saveCheckpoint(newCheckpointId, checkpointData);
+                    this.logToMain(`System: Execution interrupted. Human approval required for tool '${response.toolName}'.`);
+                    this.callbackManager?.dispatch(CallbackEvents.userApprovalRequired, {
+                        checkpointId: newCheckpointId,
+                        sessionId,
+                        toolName: response.toolName,
+                        toolInput: response.toolInput
+                    });
+                    return { interrupted: true, checkpointId: newCheckpointId, toolName: response.toolName, toolInput: response.toolInput };
+                }
+
+                const inputLogStr = typeof response.toolInput === "object" ? JSON.stringify(response.toolInput) : response.toolInput;
+                this.logToMain(`Action: Running ${response.toolName} with input ${inputLogStr}`);
+                this.callbackManager?.dispatch(CallbackEvents.toolStart, { toolName: response.toolName, toolInput: response.toolInput });
+
                 const execResult = await this._executeToolWithRetry(tool, response.toolName, response.toolInput, inputLogStr);
                 currentTurnLog += execResult.logStr;
                 if (execResult.success) {
@@ -352,8 +502,31 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
                     askLLM,
                     logToMain
                 });
-                const finalStr = typeof answer === "string" ? answer : answer?.finalAnswer || JSON.stringify(answer);
-                self.postMessage({ id, type: MessageContext.agentComplete, payload: finalStr });
+                if (answer && typeof answer === "object" && answer.interrupted) {
+                    self.postMessage({ id, type: MessageContext.agentInterrupt, payload: answer });
+                } else {
+                    const finalStr = typeof answer === "string" ? answer : answer?.finalAnswer || JSON.stringify(answer);
+                    self.postMessage({ id, type: MessageContext.agentComplete, payload: finalStr });
+                }
+            } catch (err) {
+                self.postMessage({ id, type: MessageContext.agentError, payload: err.message });
+            }
+        } else if (type === MessageContext.resumeLoop) {
+            try {
+                await memory.init();
+                const answer = await agentExecutor.resume({
+                    checkpointId: payload.checkpointId,
+                    approvedParams: payload.approvedParams,
+                    memory,
+                    askLLM,
+                    logToMain
+                });
+                if (answer && typeof answer === "object" && answer.interrupted) {
+                    self.postMessage({ id, type: MessageContext.agentInterrupt, payload: answer });
+                } else {
+                    const finalStr = typeof answer === "string" ? answer : answer?.finalAnswer || JSON.stringify(answer);
+                    self.postMessage({ id, type: MessageContext.agentComplete, payload: finalStr });
+                }
             } catch (err) {
                 self.postMessage({ id, type: MessageContext.agentError, payload: err.message });
             }

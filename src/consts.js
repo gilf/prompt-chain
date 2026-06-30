@@ -11,7 +11,9 @@ export const MessageContext = {
     agentCallbackEvent: 'agent_callback_event',
     agentComplete: 'agent_complete',
     agentError: 'agent_error',
-    startLoop: 'start_loop'
+    agentInterrupt: 'agent_interrupt',
+    startLoop: 'start_loop',
+    resumeLoop: 'resume_loop'
 };
 
 export const CallbackEvents = {
@@ -24,5 +26,6 @@ export const CallbackEvents = {
     toolEnd: 'on_tool_end',
     toolError: 'on_tool_error',
     contextOverflow: 'on_context_overflow',
+    userApprovalRequired: 'on_user_approval_required',
     eventDispatch: 'agent_callback'
 };

@@ -33,16 +33,21 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - Bridges Chrome Prompt API token monitoring (`session.measureContextUsage()`, `session.contextUsage`, `session.contextWindow`) across the Web Worker boundary.
   - Features `RunnableTokenBuffer` LCEL primitive with a configurable watermark threshold (default **85%** of context window capacity).
   - Automatically truncates verbose single-turn tool observations and triggers rolling summarization of past conversation turns to ensure continuous ReAct loops without quota errors.
-- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations) alongside live token generation.
+- **Human-in-the-Loop (HITL) Interruption & Checkpointing (`RunnableInterrupt`)**:
+  - Implements an asynchronous safety rail for sensitive operations (e.g., modifying databases, booking flights, or external network requests).
+  - When the agent attempts to invoke a tool flagged with `{ requiresApproval: true }`, the execution graph suspends and serializes its exact loop state (including sanitized context and turn history) into IndexedDB (`checkpoints` store).
+  - Emits a real-time `userApprovalRequired` event to the host UI, displaying an interactive approval card where developers can review or edit JSON tool parameters.
+  - Posts a `resume(checkpointId, approvedParams)` message back to the Web Worker to rehydrate the state and resume execution seamlessly.
+- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, and interactive HITL approval cards.
 
 ---
 
 ## File Directory & Architecture
 
-- **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, and loaded skills indicators.
+- **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, interactive HITL approval cards, and loaded skills indicators.
 - **[callbacks.js](file:///c:/Lectures/Demo/src/callbacks.js)**: Global `CallbackManager` for structured event emitting and cross-thread token streaming.
 - **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
-- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`).
+- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`, `RunnableTokenBuffer`, `RunnableInterrupt`).
 - **[my-agent.js](file:///c:/Lectures/Demo/src/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
 - **[custom-runner-demo.js](file:///c:/Lectures/Demo/src/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
 - **[prompt-chain-worker.js](file:///c:/Lectures/Demo/src/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.
@@ -78,7 +83,26 @@ const directAnswerChain = RunnableSequence.from([
     myLLMRunnable // Any custom model wrapper or pipeline step
 ]);
 
-createAgentWorker(directAnswerChain); // Universal Web Worker Host runs your chain!
+### 3. Human-in-the-Loop Interruption (`requiresApproval`)
+Flag sensitive tools with `{ requiresApproval: true }` to suspend execution before high-impact operations occur:
+```javascript
+// Worker side (my-agent.js)
+const bookFlightTool = new Tool(
+    "bookFlight",
+    "Books a flight ticket.",
+    async ({ origin, dest, passengers }) => `Booked flight to ${dest}!`,
+    flightSchema,
+    { requiresApproval: true } // Execution pauses right before running this tool
+);
+
+// Host UI side (index.html)
+window.addEventListener(CallbackEvents.eventDispatch, (e) => {
+    if (e.detail.event === CallbackEvents.userApprovalRequired) {
+        const { checkpointId, toolName, toolInput } = e.detail;
+        // Prompt human user for review or modifications...
+        host.resume(checkpointId, approvedToolInput); // Rehydrate state and complete execution
+    }
+});
 ```
 
 ---
