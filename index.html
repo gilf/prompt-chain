@@ -52,6 +52,22 @@
             </div>
         </div>
 
+        <div id="approval-card" class="chat-card approval-card" style="display: none;">
+            <div class="panel-title" style="color: #f59e0b;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                Human Approval Required (HITL Interruption)
+            </div>
+            <div class="approval-info">
+                <p>The agent paused execution before invoking a sensitive tool: <strong id="approval-tool-name" style="color: var(--accent-color);"></strong></p>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">Review or modify the parameters below before continuing:</p>
+            </div>
+            <textarea id="approval-params-input" class="approval-textarea" rows="4"></textarea>
+            <div class="approval-actions">
+                <button id="approval-approve-btn" class="approve-btn">Approve & Resume</button>
+                <button id="approval-reject-btn" class="reject-btn">Reject / Cancel</button>
+            </div>
+        </div>
+
         <div class="output-card">
             <div class="panel-title">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-observation);"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
@@ -70,6 +86,7 @@
     const runBtn = document.getElementById('run-btn');
     const input = document.getElementById('prompt-input');
     const skillsList = document.getElementById('skills-list');
+    let activeHost = null;
 
     async function loadSkillsForUI() {
         try {
@@ -177,6 +194,47 @@
             warnEl.textContent = `⚠️ Token Buffer Alert: ${payload.data.warning}`;
             logBox.appendChild(warnEl);
             logBox.scrollTop = logBox.scrollHeight;
+        } else if (payload.event === CallbackEvents.userApprovalRequired) {
+            const approvalCard = document.getElementById('approval-card');
+            const toolNameEl = document.getElementById('approval-tool-name');
+            const paramsInput = document.getElementById('approval-params-input');
+            const approveBtn = document.getElementById('approval-approve-btn');
+            const rejectBtn = document.getElementById('approval-reject-btn');
+
+            toolNameEl.textContent = payload.toolName || 'Unknown Tool';
+            paramsInput.value = typeof payload.toolInput === 'object' ? JSON.stringify(payload.toolInput, null, 2) : payload.toolInput;
+            approvalCard.style.display = 'block';
+            resultBox.innerText = `Paused: Waiting for human approval on tool '${payload.toolName}'...`;
+
+            approveBtn.onclick = async () => {
+                approvalCard.style.display = 'none';
+                runBtn.disabled = true;
+                resultBox.innerText = 'Resuming agent execution...';
+                try {
+                    let approvedParams = paramsInput.value;
+                    try {
+                        approvedParams = JSON.parse(approvedParams);
+                    } catch (e) {}
+                    if (activeHost) {
+                        const ans = await activeHost.resume(payload.checkpointId, approvedParams);
+                        if (ans && typeof ans === 'object' && ans.interrupted) {
+                            // Interrupted again for approval
+                        } else {
+                            resultBox.innerText = typeof ans === 'string' ? ans : JSON.stringify(ans);
+                        }
+                    }
+                } catch (err) {
+                    resultBox.innerHTML = `<span style="color: #ef4444;">Error resuming: ${err.message}</span>`;
+                } finally {
+                    runBtn.disabled = false;
+                }
+            };
+
+            rejectBtn.onclick = () => {
+                approvalCard.style.display = 'none';
+                resultBox.innerText = `Cancelled execution of tool '${payload.toolName}'.`;
+                runBtn.disabled = false;
+            };
         }
     });
 
@@ -200,6 +258,7 @@
         runBtn.textContent = "Initializing Model...";
 
         const host = new PromptChainHost('./src/my-agent.js');
+        activeHost = host;
 
         await host.init(
             "You are a logical assistant. You must always output JSON matching the provided schema. Think step-by-step."

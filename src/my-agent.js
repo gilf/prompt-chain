@@ -34,7 +34,8 @@ const bookFlightTool = new Tool(
             passengers: { type: "integer", description: "Number of passengers traveling" }
         },
         required: ["origin", "dest", "passengers"]
-    }
+    },
+    { requiresApproval: true }
 );
 
 const weatherSkill = await loadSkillFromUrl('../skills/weather');
