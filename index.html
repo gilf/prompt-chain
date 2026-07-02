@@ -22,6 +22,19 @@
     </div>
 
     <div class="main-panel">
+        <div id="download-card" class="chat-card" style="display: none; border-color: #3b82f6;">
+            <div class="panel-title" style="color: #3b82f6;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Downloading On-Device Gemini Model...
+            </div>
+            <div style="margin-top: 0.75rem;">
+                <div style="width: 100%; background: rgba(255,255,255,0.1); border-radius: 999px; height: 10px; overflow: hidden;">
+                    <div id="download-progress-bar" style="width: 0%; background: #3b82f6; height: 100%; transition: width 0.3s ease;"></div>
+                </div>
+                <div id="download-progress-text" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: right;">0 MB / 0 MB (0%)</div>
+            </div>
+        </div>
+
         <div class="chat-card">
             <div class="panel-title">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -235,6 +248,29 @@
                 resultBox.innerText = `Cancelled execution of tool '${payload.toolName}'.`;
                 runBtn.disabled = false;
             };
+        } else if (payload.event === CallbackEvents.modelDownloadProgress) {
+            const downloadCard = document.getElementById('download-card');
+            const progressBar = document.getElementById('download-progress-bar');
+            const progressText = document.getElementById('download-progress-text');
+            if (downloadCard) {
+                downloadCard.style.display = 'block';
+                const pct = payload.total > 0 ? Math.round((payload.loaded / payload.total) * 100) : 0;
+                const loadedMB = (payload.loaded / (1024 * 1024)).toFixed(1);
+                const totalMB = (payload.total / (1024 * 1024)).toFixed(1);
+                progressBar.style.width = `${pct}%`;
+                progressText.textContent = `${loadedMB} MB / ${totalMB} MB (${pct}%)`;
+                if (pct >= 100) {
+                    setTimeout(() => { downloadCard.style.display = 'none'; }, 2000);
+                }
+            }
+        } else if (payload.event === CallbackEvents.fallbackRoute) {
+            const fbEl = document.createElement('div');
+            fbEl.className = 'log-entry system';
+            fbEl.style.color = '#3b82f6';
+            fbEl.style.borderColor = '#3b82f6';
+            fbEl.textContent = `☁️ Hybrid Router: Switching to ${payload.target || 'CloudFallback'} (${payload.reason || 'Readiness/Retry fallback'})`;
+            logBox.appendChild(fbEl);
+            logBox.scrollTop = logBox.scrollHeight;
         }
     });
 

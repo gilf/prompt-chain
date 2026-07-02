@@ -4,11 +4,11 @@ import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
 import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory, pruneObservation } from "./utils.js";
-import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException } from "./runnable.js";
+import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback } from "./runnable.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 import { CallbackManager } from "./callbacks.js";
 
-export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException };
+export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 export { CallbackManager };
 
@@ -44,6 +44,40 @@ export class LLMRunnable extends Runnable {
     }
 }
 
+export class CloudFallbackLLMRunnable extends Runnable {
+    constructor(options = {}) {
+        super();
+        this.apiUrl = options.apiUrl || "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+        this.apiKey = options.apiKey || null;
+        this.headers = options.headers || { "Content-Type": "application/json" };
+        this.requestBuilder = options.requestBuilder || ((prompt) => ({
+            contents: [{ parts: [{ text: typeof prompt === "string" ? prompt : JSON.stringify(prompt) }] }]
+        }));
+        this.responseParser = options.responseParser || ((data) => data?.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data));
+        this.logToMain = options.logToMain || (() => {});
+    }
+
+    async invoke(prompt, config = {}) {
+        this.logToMain("☁️ CloudFallback: Executing remote fallback inference...");
+        if (!this.apiUrl) {
+            throw new Error("CloudFallbackLLMRunnable requires a valid apiUrl.");
+        }
+        const url = this.apiKey ? `${this.apiUrl}?key=${this.apiKey}` : this.apiUrl;
+        const body = JSON.stringify(this.requestBuilder(prompt));
+
+        const response = await fetch(url, {
+            method: "POST",
+            headers: this.headers,
+            body
+        });
+        if (!response.ok) {
+            throw new Error(`Cloud API Error: HTTP status ${response.status}`);
+        }
+        const data = await response.json();
+        return this.responseParser(data);
+    }
+}
+
 export class JSONOutputParserRunnable extends Runnable {
     async invoke(responseText, config = {}) {
         try {
@@ -64,7 +98,7 @@ export class JSONOutputParserRunnable extends Runnable {
 }
 
 export class ReActAgentExecutor extends Runnable {
-    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager, measureContextUsage = null, getContextStats = null, thresholdRatio = 0.85, maxIterations = 7, maxRetries = 3, retryDelayMs = 1000, defaultMaxTokens = 3400 }) {
+    constructor({ tools = [], skills = [], memory, toolRetriever, skillRetriever, promptTemplate, inferenceStepChain, askLLM, logToMain, callbackManager, measureContextUsage = null, getContextStats = null, thresholdRatio = 0.85, maxIterations = 7, maxRetries = 3, retryDelayMs = 1000, defaultMaxTokens = 3400, maxSelfCorrectionAttempts = 2, cloudFallbackRunnable = null }) {
         super();
         this.tools = tools;
         this.skills = skills;
@@ -83,6 +117,8 @@ export class ReActAgentExecutor extends Runnable {
         this.maxRetries = maxRetries;
         this.retryDelayMs = retryDelayMs;
         this.defaultMaxTokens = defaultMaxTokens;
+        this.maxSelfCorrectionAttempts = maxSelfCorrectionAttempts;
+        this.cloudFallbackRunnable = cloudFallbackRunnable;
     }
 
     async _prepareContext(userPrompt) {
@@ -143,6 +179,25 @@ export class ReActAgentExecutor extends Runnable {
         };
     }
 
+    async _invokeStepWithFallback(chainInput, selfCorrectionCount) {
+        let stepResult = await this.inferenceStepChain.invoke(chainInput);
+        if (!stepResult.success) {
+            const nextCount = selfCorrectionCount + 1;
+            if (nextCount >= this.maxSelfCorrectionAttempts && this.cloudFallbackRunnable) {
+                this.logToMain(`⚠️ Local model failed self-correction ${nextCount} times. Routing to Fallback...`);
+                this.callbackManager?.dispatch(CallbackEvents.fallbackRoute, { reason: `Exceeded ${nextCount} self-correction attempts`, target: this.cloudFallbackRunnable.constructor?.name || "FallbackRunnable" });
+                const fallbackRaw = await this.cloudFallbackRunnable.invoke(chainInput);
+                const parsedFallback = await new JSONOutputParserRunnable().invoke(fallbackRaw);
+                if (parsedFallback.success) {
+                    return { success: true, stepResult: parsedFallback, nextChainInput: chainInput, selfCorrectionCount: 0 };
+                }
+                return { success: false, stepResult: parsedFallback, nextChainInput: `Observation: ${parsedFallback.error}`, selfCorrectionCount: nextCount };
+            }
+            return { success: false, stepResult, nextChainInput: `Observation: ${stepResult.error}`, selfCorrectionCount: nextCount };
+        }
+        return { success: true, stepResult, nextChainInput: chainInput, selfCorrectionCount: 0 };
+    }
+
     async _saveAndCompressHistory(sessionId, userPrompt, finalResult, historyTurns, conversationSummary) {
         historyTurns.push(new HumanMessage(userPrompt));
         historyTurns.push(new AIMessage(finalResult));
@@ -169,18 +224,21 @@ export class ReActAgentExecutor extends Runnable {
 
         let currentTurnLog = `User: ${userPrompt}\n`;
         let chainInput = { relevantTools, historyTurns, userPrompt, summary: conversationSummary, skillInstructions };
+        let selfCorrectionCount = 0;
 
         while (!isComplete && loopCount < this.maxIterations) {
             loopCount++;
 
             this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
-            const stepResult = await this.inferenceStepChain.invoke(chainInput);
+            const stepOutcome = await this._invokeStepWithFallback(chainInput, selfCorrectionCount);
+            selfCorrectionCount = stepOutcome.selfCorrectionCount;
 
-            if (!stepResult.success) {
-                chainInput = `Observation: ${stepResult.error}`;
+            if (!stepOutcome.success) {
+                chainInput = stepOutcome.nextChainInput;
                 continue;
             }
 
+            const stepResult = stepOutcome.stepResult;
             const response = stepResult.parsed;
 
             if (response.thought) {
@@ -293,18 +351,21 @@ export class ReActAgentExecutor extends Runnable {
 
         let isComplete = false;
         let finalResult = "";
+        let selfCorrectionCount = 0;
 
         while (!isComplete && loopCount < this.maxIterations) {
             loopCount++;
 
             this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
-            const stepResult = await this.inferenceStepChain.invoke(chainInput);
+            const stepOutcome = await this._invokeStepWithFallback(chainInput, selfCorrectionCount);
+            selfCorrectionCount = stepOutcome.selfCorrectionCount;
 
-            if (!stepResult.success) {
-                chainInput = `Observation: ${stepResult.error}`;
+            if (!stepOutcome.success) {
+                chainInput = stepOutcome.nextChainInput;
                 continue;
             }
 
+            const stepResult = stepOutcome.stepResult;
             const response = stepResult.parsed;
 
             if (response.thought) {
@@ -419,6 +480,22 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
         thresholdRatio: options?.thresholdRatio ?? 0.85,
         pruneObservationFn: pruneObservation
     });
+    const cloudFallbackRunnable = new CloudFallbackLLMRunnable({
+        apiUrl: options?.fallbackOptions?.apiUrl,
+        apiKey: options?.fallbackOptions?.apiKey,
+        mockFallback: options?.fallbackOptions?.mockFallback ?? true,
+        logToMain,
+        schema: agentSchema
+    });
+    const fallbackLLMRunnable = new RunnableFallback([
+        bufferedLLMRunnable,
+        cloudFallbackRunnable
+    ], {
+        onFallback: (err) => {
+            logToMain(`⚠️ Local inference unavailable or failed (${err.message}). Routing to Cloud Fallback...`);
+            callbackManager?.dispatch(CallbackEvents.fallbackRoute, { reason: err.message, target: "CloudFallback" });
+        }
+    });
     const parserRunnable = new JSONOutputParserRunnable();
     
     const inferenceStepChain = RunnableSequence.from([
@@ -426,7 +503,7 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
             if (typeof promptInput === "string") return promptInput;
             return await promptTemplate.invoke(promptInput);
         }),
-        bufferedLLMRunnable,
+        fallbackLLMRunnable,
         parserRunnable
     ]);
 
@@ -447,7 +524,9 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
         maxIterations: options?.maxIterations,
         maxRetries: options?.maxRetries,
         retryDelayMs: options?.retryDelayMs,
-        defaultMaxTokens: options?.defaultMaxTokens
+        defaultMaxTokens: options?.defaultMaxTokens,
+        maxSelfCorrectionAttempts: options?.maxSelfCorrectionAttempts ?? 2,
+        cloudFallbackRunnable
     });
 }
 

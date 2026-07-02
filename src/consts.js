@@ -27,5 +27,7 @@ export const CallbackEvents = {
     toolError: 'on_tool_error',
     contextOverflow: 'on_context_overflow',
     userApprovalRequired: 'on_user_approval_required',
+    modelDownloadProgress: 'on_model_download_progress',
+    fallbackRoute: 'on_fallback_route',
     eventDispatch: 'agent_callback'
 };
