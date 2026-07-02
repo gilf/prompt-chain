@@ -37,10 +37,13 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - Implements an asynchronous safety rail for sensitive operations (e.g., modifying databases, booking flights, or external network requests).
   - When the agent attempts to invoke a tool flagged with `{ requiresApproval: true }`, the execution graph suspends and serializes its exact loop state (including sanitized context and turn history) into IndexedDB (`checkpoints` store).
   - Emits a real-time `userApprovalRequired` event to the host UI, displaying an interactive approval card where developers can review or edit JSON tool parameters.
-  - Posts a `resume(checkpointId, approvedParams)` message back to the Web Worker to rehydrate the state and resume execution seamlessly.
 - **Hybrid Local/Cloud Fallback & Readiness Routing (`RunnableFallback`)**:
   - **Download State Monitoring**: Hooks into Chrome's `LanguageModel.create({ monitor(m) })` to track on-device model downloading, emitting real-time `modelDownloadProgress` events (`loaded`, `total`) to display UI progress bars.
   - **Composable Readiness & Retry Routing**: Wraps the inference runtime in a `RunnableFallback` pipeline (`[localLLM, cloudFallbackLLM]`). If the local Prompt API is unavailable, rate-limited, or exceeds configurable self-correction retry limits (`maxSelfCorrectionAttempts`, default **2** attempts), execution transparently switches to `CloudFallbackLLMRunnable` (or remote fetch endpoints) without altering agent business logic or swallowing HITL interruptions.
+- **Native Structured Output Enforcement & Schema Grammar (`StructuredOutputRunnable`)**:
+  - Integrates JSON Schema parameter and output constraints directly into Chrome Prompt API options (`responseSchema` and `responseConstraint`).
+  - Features a zero-dependency client-side recursive JSON Schema validator (`validateJSONSchema`) producing exact JSON pointer error paths (e.g., `Error at /toolInput/passengers: expected number, got string`).
+  - Wraps agent inference steps inside `StructuredOutputRunnable`. If schema violations occur, exact pointer paths are intercepted and automatically injected into the ReAct self-correction loop for pinpoint model self-repair.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, and interactive HITL approval cards.
 
 ---
