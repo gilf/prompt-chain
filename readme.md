@@ -38,16 +38,19 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - When the agent attempts to invoke a tool flagged with `{ requiresApproval: true }`, the execution graph suspends and serializes its exact loop state (including sanitized context and turn history) into IndexedDB (`checkpoints` store).
   - Emits a real-time `userApprovalRequired` event to the host UI, displaying an interactive approval card where developers can review or edit JSON tool parameters.
   - Posts a `resume(checkpointId, approvedParams)` message back to the Web Worker to rehydrate the state and resume execution seamlessly.
-- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, and interactive HITL approval cards.
+- **Hybrid Local/Cloud Fallback & Readiness Routing (`RunnableFallback`)**:
+  - **Download State Monitoring**: Hooks into Chrome's `LanguageModel.create({ monitor(m) })` to track on-device model downloading, emitting real-time `modelDownloadProgress` events (`loaded`, `total`) to display UI progress bars.
+  - **Composable Readiness & Retry Routing**: Wraps the inference runtime in a `RunnableFallback` pipeline (`[localLLM, cloudFallbackLLM]`). If the local Prompt API is unavailable, rate-limited, or exceeds configurable self-correction retry limits (`maxSelfCorrectionAttempts`, default **2** attempts), execution transparently switches to `CloudFallbackLLMRunnable` (or remote fetch endpoints) without altering agent business logic or swallowing HITL interruptions.
+- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, and interactive HITL approval cards.
 
 ---
 
 ## File Directory & Architecture
 
-- **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, interactive HITL approval cards, and loaded skills indicators.
+- **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, interactive HITL approval cards, download progress bars, and loaded skills indicators.
 - **[callbacks.js](file:///c:/Lectures/Demo/src/callbacks.js)**: Global `CallbackManager` for structured event emitting and cross-thread token streaming.
 - **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
-- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`, `RunnableTokenBuffer`, `RunnableInterrupt`).
+- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`, `RunnableTokenBuffer`, `RunnableInterrupt`, `RunnableFallback`).
 - **[my-agent.js](file:///c:/Lectures/Demo/src/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
 - **[custom-runner-demo.js](file:///c:/Lectures/Demo/src/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
 - **[prompt-chain-worker.js](file:///c:/Lectures/Demo/src/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.

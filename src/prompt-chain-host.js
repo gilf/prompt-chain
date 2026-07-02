@@ -7,7 +7,18 @@ export class LLMSessionManager {
 
     async init(systemPrompt) {
         this.session = await LanguageModel.create({
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            monitor(m) {
+                m.addEventListener('downloadprogress', (e) => {
+                    window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, {
+                        detail: {
+                            event: CallbackEvents.modelDownloadProgress,
+                            loaded: e.loaded,
+                            total: e.total
+                        }
+                    }));
+                });
+            }
         });
         if (this.session) {
             const overflowHandler = () => {
