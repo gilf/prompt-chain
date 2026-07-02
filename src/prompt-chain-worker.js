@@ -4,11 +4,11 @@ import { PromptTemplate } from "./prompt-template.js";
 import { ToolRetriever } from "./tool-retriever.js";
 import { SkillRetriever } from "./skill-retriever.js";
 import { isRecoverableError, runWithTimeout, delay, compressHistory, pruneObservation } from "./utils.js";
-import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback } from "./runnable.js";
+import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback, StructuredOutputRunnable, validateJSONSchema } from "./runnable.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 import { CallbackManager } from "./callbacks.js";
 
-export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback };
+export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback, StructuredOutputRunnable, validateJSONSchema };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 export { CallbackManager };
 
@@ -497,14 +497,14 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
         }
     });
     const parserRunnable = new JSONOutputParserRunnable();
+    const structuredOutputRunnable = new StructuredOutputRunnable(fallbackLLMRunnable, agentSchema, { parser: parserRunnable });
     
     const inferenceStepChain = RunnableSequence.from([
         new RunnableLambda(async (promptInput) => {
             if (typeof promptInput === "string") return promptInput;
             return await promptTemplate.invoke(promptInput);
         }),
-        fallbackLLMRunnable,
-        parserRunnable
+        structuredOutputRunnable
     ]);
 
     return new ReActAgentExecutor({

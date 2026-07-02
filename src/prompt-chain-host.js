@@ -38,6 +38,7 @@ export class LLMSessionManager {
         const options = {};
         if (payload.schema) {
             options.responseConstraint = payload.schema;
+            options.responseSchema = payload.schema;
         }
         if (typeof this.session.promptStreaming === 'function') {
             const stream = this.session.promptStreaming(payload.prompt, options);
