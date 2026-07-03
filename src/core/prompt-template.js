@@ -1,4 +1,4 @@
-import { Runnable } from "./runnables/index.js";
+import { Runnable } from "../runnables/index.js";
 
 export class PromptTemplate extends Runnable {
     constructor() {
