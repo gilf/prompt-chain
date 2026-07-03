@@ -1,29 +1,23 @@
-export class SkillRetriever {
-    constructor(skillsArray = []) {
-        this.skills = skillsArray;
+import { SemanticRetriever } from '../retrievers/index.js';
+
+export class SkillRetriever extends SemanticRetriever {
+    constructor(skillsArray = [], options = {}) {
+        super(skillsArray, options);
+    }
+
+    get skills() {
+        return this.items;
+    }
+
+    set skills(val) {
+        this.items = val;
+    }
+
+    getItemText(skill) {
+        return `${skill.name}: ${skill.description || ""} ${skill.instructions || ""}`;
     }
 
     async getRelevantSkills(userPrompt, topK = 1) {
-        if (this.skills.length <= topK) return this.skills;
-
-        const query = userPrompt.toLowerCase();
-
-        const scoredSkills = this.skills.map(skill => {
-            let score = 0;
-            const targetText = `${skill.name} ${skill.description}`.toLowerCase();
-            const queryTokens = query.split(/\W+/);
-            for (const token of queryTokens) {
-                if (token.length > 3 && targetText.includes(token)) {
-                    score += 1;
-                }
-            }
-            return { skill, score };
-        });
-
-        return scoredSkills
-            .filter(item => item.score > 0)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, topK)
-            .map(item => item.skill);
+        return await this.retrieve(userPrompt, topK, true);
     }
 }

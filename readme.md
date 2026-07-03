@@ -44,6 +44,11 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - Integrates JSON Schema parameter and output constraints directly into Chrome Prompt API options (`responseSchema` and `responseConstraint`).
   - Features a zero-dependency client-side recursive JSON Schema validator (`validateJSONSchema`) producing exact JSON pointer error paths (e.g., `Error at /toolInput/passengers: expected number, got string`).
   - Wraps agent inference steps inside `StructuredOutputRunnable`. If schema violations occur, exact pointer paths are intercepted and automatically injected into the ReAct self-correction loop for pinpoint model self-repair.
+- **On-Device Vector RAG & Semantic Tool/Skill Retrieval (`IndexedDBVectorStore` & `RunnableRetriever`)**:
+  - Features zero-dependency local vector search backed by IndexedDB (`IndexedDBVectorStore`) with exact mathematical cosine similarity ranking.
+  - Exposes an extensible `EmbeddingsPlugin` interface allowing developers to plug in any custom client-side embedding generator (such as Chrome's built-in embedding API or Transformers.js WebGPU models).
+  - Includes `RunnableRetriever` for declarative LCEL RAG pipelines.
+  - Upgraded `ToolRetriever` and `SkillRetriever` to perform dynamic semantic pruning, filtering manifests of 50+ tools/skills down to the Top-K most relevant items before LLM prompt construction.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, and interactive HITL approval cards.
 
 ---
@@ -62,20 +67,26 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - [runnable-interrupt.js](file:///c:/Lectures/Demo/src/runnables/runnable-interrupt.js) & [interrupt-exception.js](file:///c:/Lectures/Demo/src/runnables/interrupt-exception.js): Human-in-the-Loop suspension rails.
   - [runnable-fallback.js](file:///c:/Lectures/Demo/src/runnables/runnable-fallback.js): Hybrid local/cloud model fallback routing.
   - [structured-output-runnable.js](file:///c:/Lectures/Demo/src/runnables/structured-output-runnable.js) & [validate-json-schema.js](file:///c:/Lectures/Demo/src/runnables/validate-json-schema.js): JSON Schema validation and pinpoint self-repair.
+  - [runnable-retriever.js](file:///c:/Lectures/Demo/src/runnables/runnable-retriever.js): Declarative LCEL vector and semantic retriever primitive.
+- **[src/retrievers/](file:///c:/Lectures/Demo/src/retrievers)**:
+  - [indexeddb-vector-store.js](file:///c:/Lectures/Demo/src/retrievers/indexeddb-vector-store.js): Zero-dependency local vector store backed by IndexedDB (`IndexedDBVectorStore`), pluggable embedding interface (`EmbeddingsPlugin`), and exact `cosineSimilarity` calculation.
+  - [semantic-retriever.js](file:///c:/Lectures/Demo/src/retrievers/semantic-retriever.js): Unified base retriever class (`SemanticRetriever`) providing vector cosine pruning and token overlap fallback.
 - **[src/skills/](file:///c:/Lectures/Demo/src/skills)**:
   - [skill.js](file:///c:/Lectures/Demo/src/skills/skill.js): Dynamic skill loader and markdown frontmatter parser.
-  - [skill-retriever.js](file:///c:/Lectures/Demo/src/skills/skill-retriever.js): Lightweight RAG token-overlap skill scorer.
+  - [skill-retriever.js](file:///c:/Lectures/Demo/src/skills/skill-retriever.js): Semantic skill retriever extending `SemanticRetriever`.
+- **[src/tools/](file:///c:/Lectures/Demo/src/tools)**:
+  - [tool-retriever.js](file:///c:/Lectures/Demo/src/tools/tool-retriever.js): Semantic tool retriever extending `SemanticRetriever`.
 - **[src/core/](file:///c:/Lectures/Demo/src/core)**:
   - [prompt-chain-host.js](file:///c:/Lectures/Demo/src/core/prompt-chain-host.js): Main thread session manager, event dispatcher, and Prompt API host bridge.
   - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js): Universal Web Worker agent runtime host & `ReActAgentExecutor`.
+  - [callbacks.js](file:///c:/Lectures/Demo/src/core/callbacks.js): Global `CallbackManager` for structured event emitting and cross-thread token streaming.
+  - [messages.js](file:///c:/Lectures/Demo/src/core/messages.js): Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
+  - [prompt-template.js](file:///c:/Lectures/Demo/src/core/prompt-template.js): LCEL-pipeable prompt formatting component.
+  - [agent-memory.js](file:///c:/Lectures/Demo/src/core/agent-memory.js): IndexedDB persistent conversation storage manager.
 - **[src/examples/](file:///c:/Lectures/Demo/src/examples)**:
   - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
   - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
-- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, and fallback routing.
-- **[callbacks.js](file:///c:/Lectures/Demo/src/callbacks.js)**: Global `CallbackManager` for structured event emitting and cross-thread token streaming.
-- **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
-- **[prompt-template.js](file:///c:/Lectures/Demo/src/prompt-template.js)**: LCEL-pipeable prompt formatting component.
-- **[agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js)**: IndexedDB persistent conversation storage manager.
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, and on-device vector RAG.
 
 ---
 

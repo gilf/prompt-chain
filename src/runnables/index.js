@@ -10,3 +10,4 @@ export * from './runnable-interrupt.js';
 export * from './runnable-fallback.js';
 export * from './validate-json-schema.js';
 export * from './structured-output-runnable.js';
+export * from './runnable-retriever.js';

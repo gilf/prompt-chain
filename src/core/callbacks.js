@@ -1,4 +1,4 @@
-import { MessageContext } from "./consts.js";
+import { MessageContext } from "../consts.js";
 
 export class CallbackManager {
     constructor(handlers = {}) {
