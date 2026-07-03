@@ -1,4 +1,4 @@
-import { MessageContext, CallbackEvents } from "./consts.js";
+import { MessageContext, CallbackEvents } from "../consts.js";
 
 export class LLMSessionManager {
     constructor() {
@@ -26,8 +26,6 @@ export class LLMSessionManager {
             };
             if ('oncontextoverflow' in this.session) {
                 this.session.oncontextoverflow = overflowHandler;
-            } else if ('onquotaoverflow' in this.session) {
-                this.session.onquotaoverflow = overflowHandler;
             } else if (typeof this.session.addEventListener === 'function') {
                 this.session.addEventListener('contextoverflow', overflowHandler);
             }

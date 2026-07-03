@@ -1,4 +1,4 @@
-import { RunnableSequence, RunnableLambda, createAgentWorker } from './prompt-chain-worker.js';
+import { RunnableSequence, RunnableLambda, createAgentWorker } from '../core/prompt-chain-worker.js';
 
 /**
  * Demonstration: A Custom Linear QA Agent Topology (No ReAct Loop!)

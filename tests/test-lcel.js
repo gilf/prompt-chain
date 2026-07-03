@@ -1,4 +1,4 @@
-import { RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough } from './runnable.js';
+import { RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough } from '../src/index.js';
 
 async function runTests() {
     console.log("=== Testing LCEL Runnables ===");

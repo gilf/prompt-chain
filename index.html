@@ -293,7 +293,7 @@
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
 
-        const host = new PromptChainHost('./src/my-agent.js');
+        const host = new PromptChainHost('./src/examples/my-agent.js');
         activeHost = host;
 
         await host.init(

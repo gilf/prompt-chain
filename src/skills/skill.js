@@ -1,4 +1,4 @@
-import { Tool } from './prompt-chain-worker.js';
+import { Tool } from '../core/prompt-chain-worker.js';
 
 export class Skill {
     constructor(name, description, instructions, tools = []) {

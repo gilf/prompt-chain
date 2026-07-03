@@ -13,11 +13,11 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 
 - **On-Device LLM Inference**: Runs entirely in the browser using Chrome's built-in `LanguageModel` API (`window.LanguageModel`), eliminating the need for external API keys or network latency.
 - **Composable Chains & Universal Agent Runtime (LCEL)**: 
-  - Features declarative primitive composition via [runnable.js](file:///c:/Lectures/Demo/runnable.js) (`RunnableSequence`, `RunnableParallel`, `.pipe()`, `.bind()`).
-  - [createAgentWorker()](file:///c:/Lectures/Demo/prompt-chain-worker.js) acts as a **Universal Agent Runtime Host**. It accepts either legacy tool arrays (to spin up default ReAct loops via `ReActAgentExecutor`) or **any custom Runnable chain topology**.
+  - Features declarative primitive composition via [src/runnables/](file:///c:/Lectures/Demo/src/runnables) (`RunnableSequence`, `RunnableParallel`, `.pipe()`, `.bind()`).
+  - [createAgentWorker()](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js) acts as a **Universal Agent Runtime Host**. It accepts either legacy tool arrays (to spin up default ReAct loops via `ReActAgentExecutor`) or **any custom Runnable chain topology**.
 - **Asynchronous Web Worker Architecture**: 
-  - [prompt-chain-host.js](file:///c:/Lectures/Demo/prompt-chain-host.js) runs on the main browser thread to manage the LLM session.
-  - [prompt-chain-worker.js](file:///c:/Lectures/Demo/prompt-chain-worker.js) runs in a background thread to orchestrate the agent loop, execute tools, and handle errors, keeping the user interface completely responsive.
+  - [prompt-chain-host.js](file:///c:/Lectures/Demo/src/core/prompt-chain-host.js) runs on the main browser thread to manage the LLM session.
+  - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js) runs in a background thread to orchestrate the agent loop, execute tools, and handle errors, keeping the user interface completely responsive.
 - **Dynamic Skill & Tool Retrieval (Lightweight RAG)**: Matches the user prompt against loaded skills and tools using a token-overlap scorer, feeding only relevant context to the prompt and preserving token limits.
 - **Typed Message History & Roles (LangChain Standard)**:
   - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/messages.js).
@@ -51,35 +51,132 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 ## File Directory & Architecture
 
 - **[index.html](file:///c:/Lectures/Demo/index.html)** & **[styles.css](file:///c:/Lectures/Demo/styles.css)**: The frontend user interface containing input fields, suggestion chips, reasoning stream log viewports, interactive HITL approval cards, download progress bars, and loaded skills indicators.
+- **[src/index.js](file:///c:/Lectures/Demo/src/index.js)**: Main package entry point exporting all library modules.
+- **[src/runnables/](file:///c:/Lectures/Demo/src/runnables)**: Modular LangChain Expression Language (LCEL) primitives:
+  - [runnable.js](file:///c:/Lectures/Demo/src/runnables/runnable.js): Base abstract class with `.pipe()` and `.bind()`.
+  - [runnable-sequence.js](file:///c:/Lectures/Demo/src/runnables/runnable-sequence.js): Sequential chaining (`RunnableSequence.from`).
+  - [runnable-parallel.js](file:///c:/Lectures/Demo/src/runnables/runnable-parallel.js): Parallel graph branching (`RunnableParallel`).
+  - [runnable-lambda.js](file:///c:/Lectures/Demo/src/runnables/runnable-lambda.js): Function wrapping (`RunnableLambda`).
+  - [runnable-passthrough.js](file:///c:/Lectures/Demo/src/runnables/runnable-passthrough.js): Identity mapping & assignment (`RunnablePassthrough.assign`).
+  - [runnable-token-buffer.js](file:///c:/Lectures/Demo/src/runnables/runnable-token-buffer.js): Context window watermark truncation & summarization.
+  - [runnable-interrupt.js](file:///c:/Lectures/Demo/src/runnables/runnable-interrupt.js) & [interrupt-exception.js](file:///c:/Lectures/Demo/src/runnables/interrupt-exception.js): Human-in-the-Loop suspension rails.
+  - [runnable-fallback.js](file:///c:/Lectures/Demo/src/runnables/runnable-fallback.js): Hybrid local/cloud model fallback routing.
+  - [structured-output-runnable.js](file:///c:/Lectures/Demo/src/runnables/structured-output-runnable.js) & [validate-json-schema.js](file:///c:/Lectures/Demo/src/runnables/validate-json-schema.js): JSON Schema validation and pinpoint self-repair.
+- **[src/skills/](file:///c:/Lectures/Demo/src/skills)**:
+  - [skill.js](file:///c:/Lectures/Demo/src/skills/skill.js): Dynamic skill loader and markdown frontmatter parser.
+  - [skill-retriever.js](file:///c:/Lectures/Demo/src/skills/skill-retriever.js): Lightweight RAG token-overlap skill scorer.
+- **[src/core/](file:///c:/Lectures/Demo/src/core)**:
+  - [prompt-chain-host.js](file:///c:/Lectures/Demo/src/core/prompt-chain-host.js): Main thread session manager, event dispatcher, and Prompt API host bridge.
+  - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js): Universal Web Worker agent runtime host & `ReActAgentExecutor`.
+- **[src/examples/](file:///c:/Lectures/Demo/src/examples)**:
+  - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
+  - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, and fallback routing.
 - **[callbacks.js](file:///c:/Lectures/Demo/src/callbacks.js)**: Global `CallbackManager` for structured event emitting and cross-thread token streaming.
 - **[messages.js](file:///c:/Lectures/Demo/src/messages.js)**: Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
-- **[runnable.js](file:///c:/Lectures/Demo/src/runnable.js)**: Core LCEL primitives (`Runnable`, `RunnableSequence`, `RunnableParallel`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBinding`, `RunnableTokenBuffer`, `RunnableInterrupt`, `RunnableFallback`).
-- **[my-agent.js](file:///c:/Lectures/Demo/src/my-agent.js)**: The default Web Worker entry point. Defines global tools (`Calculator`, `FetchData`), loads dynamic skills, and spins up a ReAct loop.
-- **[custom-runner-demo.js](file:///c:/Lectures/Demo/src/custom-runner-demo.js)**: Demonstration of spinning up the worker using a custom linear QA Runnable pipeline instead of ReAct.
-- **[prompt-chain-worker.js](file:///c:/Lectures/Demo/src/prompt-chain-worker.js)**: Universal runtime manager. Encapsulates `ReActAgentExecutor`, `LLMRunnable`, and `JSONOutputParserRunnable`.
-- **[prompt-chain-host.js](file:///c:/Lectures/Demo/src/prompt-chain-host.js)**: Manages main thread events, initializes Chrome's built-in model, translates LLM requests from the worker, and dispatches log streams to the UI.
 - **[prompt-template.js](file:///c:/Lectures/Demo/src/prompt-template.js)**: LCEL-pipeable prompt formatting component.
 - **[agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js)**: IndexedDB persistent conversation storage manager.
-- **[skills/](file:///c:/Lectures/Demo/skills)**:
-  - **[weather/](file:///c:/Lectures/Demo/skills/weather)**: Sample modular skill containing [SKILL.md](file:///c:/Lectures/Demo/skills/weather/SKILL.md) and mock tools.
 
 ---
 
-## LCEL Chaining & Universal Runtime Examples
+## LCEL Chaining & Runnable Usage Guide
 
-### 1. Default ReAct Agent Mode
+### 1. Sequential Chaining (`RunnableSequence` & `.pipe()`)
+Compose multiple runnables or functions step-by-step:
+```javascript
+import { RunnableSequence, RunnableLambda } from './src/index.js';
+
+// Using .pipe()
+const addOne = new RunnableLambda(async (x) => x + 1);
+const multiplyTwo = new RunnableLambda(async (x) => x * 2);
+const chain = addOne.pipe(multiplyTwo);
+
+console.log(await chain.invoke(3)); // Output: 8
+
+// Or declarative array syntax:
+const arrayChain = RunnableSequence.from([
+    async (text) => text.trim(),
+    async (text) => text.toUpperCase()
+]);
+console.log(await arrayChain.invoke("  hello world  ")); // Output: "HELLO WORLD"
+```
+
+### 2. Parallel Branching (`RunnableParallel`)
+Execute multiple runnables concurrently on the same input object:
+```javascript
+import { RunnableParallel } from './src/index.js';
+
+const parallel = new RunnableParallel({
+    charCount: async (text) => text.length,
+    wordCount: async (text) => text.split(/\s+/).filter(Boolean).length
+});
+
+const stats = await parallel.invoke("Prompt Chain runs on device!");
+// Output: { charCount: 28, wordCount: 5 }
+```
+
+### 3. State Enrichment (`RunnablePassthrough.assign`)
+Attach computed properties to an incoming input dictionary without mutating or dropping existing fields:
+```javascript
+import { RunnablePassthrough } from './src/index.js';
+
+const enrichChain = RunnablePassthrough.assign({
+    timestamp: async () => new Date().toISOString(),
+    normalizedTopic: async (input) => input.topic.toLowerCase()
+});
+
+const enriched = await enrichChain.invoke({ topic: "AI Agents", user: "Alice" });
+// Output: { topic: "AI Agents", user: "Alice", timestamp: "...", normalizedTopic: "ai agents" }
+```
+
+### 4. Structured Output Enforcement (`StructuredOutputRunnable`)
+Force an LLM or pipeline step to produce strictly validated JSON matching a JSON Schema:
+```javascript
+import { StructuredOutputRunnable } from './src/index.js';
+
+const schema = {
+    type: "object",
+    properties: {
+        city: { type: "string" },
+        temp: { type: "number" }
+    },
+    required: ["city", "temp"]
+};
+
+// Wraps any runnable; intercepts markdown fences and validates properties
+const structuredChain = new StructuredOutputRunnable(mockLLMRunnable, schema);
+const res = await structuredChain.invoke("The weather in Tokyo is 22C");
+// Output: { success: true, parsed: { city: "Tokyo", temp: 22 } }
+```
+
+### 5. Readiness & Self-Repair Fallbacks (`RunnableFallback`)
+Automatically route to a backup model or cloud endpoint if local on-device inference fails or exceeds self-correction limits:
+```javascript
+import { RunnableFallback } from './src/index.js';
+
+const robustLLM = new RunnableFallback([
+    localOnDeviceLLM, // Tries Chrome window.LanguageModel first
+    cloudFallbackLLM  // Switches to cloud API if local model fails or is rate-limited
+], {
+    onFallback: async (err, failedRunnable, nextRunnable) => {
+        console.warn(`Local model failed (${err.message}), falling back to remote endpoint...`);
+    }
+});
+```
+
+### 6. Default ReAct Agent Mode
 Passing an array of tools to `createAgentWorker` automatically instantiates the built-in `ReActAgentExecutor`:
 ```javascript
-import { Tool, createAgentWorker } from './prompt-chain-worker.js';
+import { Tool, createAgentWorker } from './src/index.js';
 
 const calcTool = new Tool("Calculator", "Evaluates math", expr => eval(expr));
 createAgentWorker([calcTool]); // Runs standard 7-turn ReAct reasoning loop
 ```
 
-### 2. Custom Agent Topologies (Bypassing ReAct)
+### 7. Custom Agent Topologies (Bypassing ReAct)
 You can pass **any custom Runnable chain** directly into `createAgentWorker()`:
 ```javascript
-import { RunnableSequence, RunnableLambda, createAgentWorker } from './prompt-chain-worker.js';
+import { RunnableSequence, RunnableLambda, createAgentWorker } from './src/index.js';
 
 const directAnswerChain = RunnableSequence.from([
     new RunnableLambda(async ({ userPrompt, logToMain }) => {
@@ -88,8 +185,9 @@ const directAnswerChain = RunnableSequence.from([
     }),
     myLLMRunnable // Any custom model wrapper or pipeline step
 ]);
+```
 
-### 3. Human-in-the-Loop Interruption (`requiresApproval`)
+### 8. Human-in-the-Loop Interruption (`requiresApproval`)
 Flag sensitive tools with `{ requiresApproval: true }` to suspend execution before high-impact operations occur:
 ```javascript
 // Worker side (my-agent.js)

@@ -1,4 +1,4 @@
-import { Tool, createAgentWorker, loadSkillFromUrl } from './index.js';
+import { Tool, createAgentWorker, loadSkillFromUrl } from '../index.js';
 
 const fetchTool = new Tool(
     "FetchData",
@@ -38,5 +38,5 @@ const bookFlightTool = new Tool(
     { requiresApproval: true }
 );
 
-const weatherSkill = await loadSkillFromUrl('../skills/weather');
+const weatherSkill = await loadSkillFromUrl('../../skills/weather');
 createAgentWorker([fetchTool, mathTool, bookFlightTool], [weatherSkill]);
