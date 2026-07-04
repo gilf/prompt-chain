@@ -41,12 +41,21 @@
                 Ask the AI Agent
             </div>
 
+            <div style="margin: 0.75rem 0; display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.05); padding: 0.5rem 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <label for="agent-mode-select" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap;">🤖 Agent Mode:</label>
+                <select id="agent-mode-select" style="background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.35rem 0.5rem; border-radius: 6px; font-family: inherit; font-size: 0.85rem; width: 100%; cursor: pointer;">
+                    <option value="./src/examples/my-agent.js">Default ReAct Agent (my-agent.js)</option>
+                    <option value="./src/examples/supervisor-demo.js">⚡ Multi-Agent Swarm (supervisor-demo.js)</option>
+                </select>
+            </div>
+
             <div class="suggestions">
                 <div class="suggestion-chip" data-prompt="What is the weather in Tokyo?">Weather in Tokyo</div>
                 <div class="suggestion-chip" data-prompt="What is 542 multiplied by 13?">Calculate 542 * 13</div>
                 <div class="suggestion-chip" data-prompt="Book 2 flight tickets from NYC to LAX.">Book Flight (NYC ✈️ LAX)</div>
                 <div class="suggestion-chip" data-prompt="Please reserve 4 flight tickets from LHR to JFK.">Book Flight (LHR ✈️ JFK)</div>
                 <div class="suggestion-chip" data-prompt="I am planning a very long multi-step travel itinerary across multiple cities: first evaluate 542 * 13 for our budget calculation, then check the weather in Tokyo, book 2 flights from NYC to LAX, and summarize all observations into a comprehensive report.">Long Context Scenario (Token Buffer Test)</div>
+                <div class="suggestion-chip" data-prompt="[Multi-Agent Swarm] Search internal docs for v0.1.1 features and then calculate our system capacity: 542 * 13.">Multi-Agent Swarm (Supervisor Demo)</div>
             </div>
 
             <div class="controls">
@@ -293,7 +302,8 @@
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
 
-        const host = new PromptChainHost('./src/examples/my-agent.js');
+        let currentWorkerUrl = './src/examples/my-agent.js';
+        const host = new PromptChainHost(currentWorkerUrl);
         activeHost = host;
 
         await host.init(
@@ -302,6 +312,29 @@
 
         runBtn.disabled = false;
         runBtn.textContent = "Run Agent";
+
+        const modeSelect = document.getElementById('agent-mode-select');
+        if (modeSelect) {
+            modeSelect.addEventListener('change', async (e) => {
+                const newWorkerUrl = e.target.value;
+                if (newWorkerUrl === currentWorkerUrl) return;
+                currentWorkerUrl = newWorkerUrl;
+                runBtn.disabled = true;
+                runBtn.textContent = "Switching Mode...";
+                resultBox.innerText = `Switching to ${newWorkerUrl}...`;
+                if (activeHost && typeof activeHost.terminate === 'function') {
+                    try { activeHost.terminate(); } catch(err) {}
+                }
+                const newHost = new PromptChainHost(newWorkerUrl);
+                activeHost = newHost;
+                await newHost.init(
+                    "You are a logical assistant. You must always output JSON matching the provided schema. Think step-by-step."
+                );
+                runBtn.disabled = false;
+                runBtn.textContent = "Run Agent";
+                resultBox.innerText = `Switched agent mode to ${newWorkerUrl}. Ready!`;
+            });
+        }
 
         const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : "session_" + Date.now();
 
@@ -312,8 +345,9 @@
             runBtn.disabled = true;
 
             try {
-                resultBox.innerText = await host.runAgent(input.value, sessionId);
+                resultBox.innerText = await activeHost.runAgent(input.value, sessionId);
             } catch (error) {
+
                 resultBox.innerHTML = `<span style="color: #ef4444;">Error: ${error.message}</span>`;
             } finally {
                 runBtn.disabled = false;

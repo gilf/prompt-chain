@@ -29,5 +29,10 @@ export const CallbackEvents = {
     userApprovalRequired: 'on_user_approval_required',
     modelDownloadProgress: 'on_model_download_progress',
     fallbackRoute: 'on_fallback_route',
+    graphStart: 'on_graph_start',
+    graphEnd: 'on_graph_end',
+    nodeStart: 'on_node_start',
+    nodeEnd: 'on_node_end',
+    supervisorRoute: 'on_supervisor_route',
     eventDispatch: 'agent_callback'
-};
+};

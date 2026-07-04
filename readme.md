@@ -49,6 +49,9 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - Exposes an extensible `EmbeddingsPlugin` interface allowing developers to plug in any custom client-side embedding generator (such as Chrome's built-in embedding API or Transformers.js WebGPU models).
   - Includes `RunnableRetriever` for declarative LCEL RAG pipelines.
   - Upgraded `ToolRetriever` and `SkillRetriever` to perform dynamic semantic pruning, filtering manifests of 50+ tools/skills down to the Top-K most relevant items before LLM prompt construction.
+- **StateGraph & Multi-Agent Supervisor Swarms (`StateGraph` & `AgentSupervisor`)**:
+  - Brings LangGraph-style cyclical state graphs, conditional routing, and custom channel state reducers directly to on-device Web Workers.
+  - Features `AgentSupervisor` and `createAgentSupervisor` to dynamically evaluate team state and route tasks across specialized AI worker runnables using strict JSON schema output enforcement.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, and interactive HITL approval cards.
 
 ---
@@ -68,6 +71,8 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
   - [runnable-fallback.js](file:///c:/Lectures/Demo/src/runnables/runnable-fallback.js): Hybrid local/cloud model fallback routing.
   - [structured-output-runnable.js](file:///c:/Lectures/Demo/src/runnables/structured-output-runnable.js) & [validate-json-schema.js](file:///c:/Lectures/Demo/src/runnables/validate-json-schema.js): JSON Schema validation and pinpoint self-repair.
   - [runnable-retriever.js](file:///c:/Lectures/Demo/src/runnables/runnable-retriever.js): Declarative LCEL vector and semantic retriever primitive.
+  - [state-graph.js](file:///c:/Lectures/Demo/src/runnables/state-graph.js): LangGraph-style cyclical state graphs (`StateGraph`, `CompiledStateGraph`) with conditional routing and reducers.
+  - [agent-supervisor.js](file:///c:/Lectures/Demo/src/runnables/agent-supervisor.js): LLM-powered multi-agent supervisor router (`AgentSupervisor`, `createAgentSupervisor`).
 - **[src/retrievers/](file:///c:/Lectures/Demo/src/retrievers)**:
   - [indexeddb-vector-store.js](file:///c:/Lectures/Demo/src/retrievers/indexeddb-vector-store.js): Zero-dependency local vector store backed by IndexedDB (`IndexedDBVectorStore`), pluggable embedding interface (`EmbeddingsPlugin`), and exact `cosineSimilarity` calculation.
   - [semantic-retriever.js](file:///c:/Lectures/Demo/src/retrievers/semantic-retriever.js): Unified base retriever class (`SemanticRetriever`) providing vector cosine pruning and token overlap fallback.
@@ -86,7 +91,9 @@ It leverages Chrome's experimental **built-in Gemini Prompt API** for private, l
 - **[src/examples/](file:///c:/Lectures/Demo/src/examples)**:
   - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
   - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
-- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, and on-device vector RAG.
+  - [supervisor-demo.js](file:///c:/Lectures/Demo/src/examples/supervisor-demo.js): Demonstration of an LLM-supervised multi-agent swarm (`Researcher` + `MathExpert`).
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, and cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)).
+
 
 ---
 
@@ -218,6 +225,53 @@ window.addEventListener(CallbackEvents.eventDispatch, (e) => {
         host.resume(checkpointId, approvedToolInput); // Rehydrate state and complete execution
     }
 });
+```
+
+### 9. StateGraph & Multi-Agent Supervisor Swarms
+Orchestrate complex cyclical workflows and multi-agent swarms using LangGraph-style state graphs and LLM supervisors:
+```javascript
+import { Tool, StateGraph, START, END, createAgentSupervisor, createAgentWorker, RunnableLambda } from './src/index.js';
+
+// 1. Define specialized worker runnables
+const researcherAgent = new RunnableLambda(async (state) => {
+    const res = await searchTool.invoke(state.userPrompt);
+    return { messages: [`Researcher: ${res}`] };
+});
+
+const mathAgent = new RunnableLambda(async (state) => {
+    const res = await calcTool.invoke("542 * 13");
+    return { messages: [`MathExpert: ${res}`], finalAnswer: res };
+});
+
+// 2. Create an LLM Supervisor Router
+const supervisor = createAgentSupervisor({
+    agents: [
+        { name: "Researcher", description: "Searches documentation and specs" },
+        { name: "MathExpert", description: "Performs mathematical calculations" }
+    ]
+});
+
+// 3. Build the cyclical StateGraph with state reducers
+const graph = new StateGraph({
+    reducers: { messages: (old, add) => (old || []).concat(add) }
+});
+
+graph.addNode("supervisor", supervisor);
+graph.addNode("Researcher", researcherAgent);
+graph.addNode("MathExpert", mathAgent);
+
+// 4. Connect cyclical routing: Supervisor -> Worker -> Supervisor -> END
+graph.setEntryPoint("supervisor");
+graph.addConditionalEdges("supervisor", (state) => state.next, {
+    "Researcher": "Researcher",
+    "MathExpert": "MathExpert",
+    "FINISH": END
+});
+graph.addEdge("Researcher", "supervisor");
+graph.addEdge("MathExpert", "supervisor");
+
+// 5. Host compiled swarm inside Web Worker runtime!
+createAgentWorker(graph.compile());
 ```
 
 ---
