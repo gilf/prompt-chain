@@ -185,4 +185,15 @@ export class PromptChainHost {
             });
         });
     }
+
+    terminate() {
+        if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+        }
+        if (this.llmManager?.session && typeof this.llmManager.session.destroy === 'function') {
+            try { this.llmManager.session.destroy(); } catch(e) {}
+        }
+    }
 }
+
