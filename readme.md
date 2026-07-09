@@ -4,8 +4,8 @@
 
 # On-Device Prompt Chain Agent
 
-An interactive, on-device AI agent platform that runs autonomous loops inside a Web Worker. 
-It leverages Chrome's experimental **built-in Gemini Prompt API** for private, local, and cost-free inference, combining custom tools, modular skills, persistent long-term memory, and a declarative **LangChain Expression Language (LCEL)** pipeline architecture.
+An interactive, on-device AI agent platform that runs inside a Web Worker. 
+It leverages **Prompt API** for private, local, and cost-free inference, combining custom tools, modular skills, persistent long-term memory, and a declarative **LangChain Expression Language (LCEL)** pipeline architecture.
 
 ---
 
