@@ -9,6 +9,7 @@ export const MessageContext = {
     llmStatsResponse: 'llm_stats_response',
     agentLog: 'agent_log',
     agentCallbackEvent: 'agent_callback_event',
+    agentTraceComplete: 'agent_trace_complete',
     agentComplete: 'agent_complete',
     agentError: 'agent_error',
     agentInterrupt: 'agent_interrupt',
@@ -34,5 +35,6 @@ export const CallbackEvents = {
     nodeStart: 'on_node_start',
     nodeEnd: 'on_node_end',
     supervisorRoute: 'on_supervisor_route',
+    traceComplete: 'on_trace_complete',
     eventDispatch: 'agent_callback'
 };

@@ -1,3 +1,5 @@
+import { openIndexedDB } from "../utils.js";
+
 export function cosineSimilarity(vecA, vecB) {
     if (!vecA || !vecB || vecA.length !== vecB.length || vecA.length === 0) return 0;
     let dot = 0, normA = 0, normB = 0;
@@ -30,24 +32,12 @@ export class IndexedDBVectorStore {
     }
 
     async init() {
-        if (typeof indexedDB === 'undefined') {
-            return;
+        if (!this.db) {
+            this.db = await openIndexedDB(this.dbName, [{ name: this.storeName, keyPath: "id" }]);
         }
-        return new Promise((resolve) => {
-            const request = indexedDB.open(this.dbName, 1);
-            request.onerror = () => resolve();
-            request.onsuccess = (e) => {
-                this.db = e.target.result;
-                resolve();
-            };
-            request.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName, { keyPath: "id" });
-                }
-            };
-        });
+        return this.db;
     }
+
 
     async addDocuments(documents) {
         if (!this.db && typeof indexedDB !== 'undefined') {

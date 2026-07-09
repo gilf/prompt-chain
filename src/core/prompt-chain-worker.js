@@ -7,10 +7,12 @@ import { isRecoverableError, runWithTimeout, delay, compressHistory, pruneObserv
 import { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback, StructuredOutputRunnable, validateJSONSchema, StateGraph, CompiledStateGraph, START, END, AgentSupervisor, createAgentSupervisor } from "../runnables/index.js";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage } from "./messages.js";
 import { CallbackManager } from "./callbacks.js";
+import { SpanStatus, Span, Trace, Tracer, SpanExporter, ConsoleTraceExporter, IndexedDBTraceExporter, OTLPTraceExporter } from "../observability/index.js";
 
 export { Runnable, RunnableSequence, RunnableParallel, RunnableLambda, RunnablePassthrough, RunnableBinding, RunnableTokenBuffer, RunnableInterrupt, InterruptException, RunnableFallback, StructuredOutputRunnable, validateJSONSchema, StateGraph, CompiledStateGraph, START, END, AgentSupervisor, createAgentSupervisor };
 export { BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage };
 export { CallbackManager };
+export { SpanStatus, Span, Trace, Tracer, SpanExporter, ConsoleTraceExporter, IndexedDBTraceExporter, OTLPTraceExporter };
 
 
 export class Tool extends Runnable {
@@ -533,8 +535,15 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
 
 export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks = null, options = {}) {
     const callbackManager = callbacks instanceof CallbackManager ? callbacks : new CallbackManager();
+    if (!callbackManager.tracer) {
+        const tracer = new Tracer("WorkerTracer");
+        tracer.addExporter(new IndexedDBTraceExporter());
+        tracer.addExporter(new ConsoleTraceExporter());
+        callbackManager.attachTracer(tracer);
+    }
     const memory = new AgentMemory();
     const rpcClient = new WorkerRPCClient();
+
 
     const agentSchema = {
         "type": "object",

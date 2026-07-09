@@ -118,7 +118,11 @@ export class PromptChainHost {
             [MessageContext.agentCallbackEvent]: (id, payload) => {
                 window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: payload }));
             },
+            [MessageContext.agentTraceComplete]: (id, payload) => {
+                window.dispatchEvent(new CustomEvent(CallbackEvents.traceComplete || "on_trace_complete", { detail: payload }));
+            },
             [MessageContext.agentComplete]: (id, payload) => {
+
                 const cb = this.callbacks.get(id);
                 if (cb) {
                     cb.resolve(payload);

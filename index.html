@@ -97,11 +97,31 @@
             </div>
             <div id="result" class="empty-result">Output will appear here...</div>
         </div>
+
+        <div class="chat-card trace-explorer-card" style="margin-top: 1.5rem;">
+            <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #3b82f6;"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    Enterprise Trace Explorer (LangSmith / OpenTelemetry Equivalent)
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="download-otlp-btn" class="trace-action-btn" disabled style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;">📥 Download OTLP JSON</button>
+                    <button id="clear-traces-btn" class="trace-action-btn" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;">🗑️ Clear Traces</button>
+                </div>
+            </div>
+            <div id="traces-list" style="margin-top: 1rem; max-height: 320px; overflow-y: auto;">
+                <div class="empty-result" style="color: var(--text-secondary); margin: auto; padding: 1.5rem 0; text-align: center;">No completed traces yet. Run an agent task to generate hierarchical OpenTelemetry spans!</div>
+            </div>
+            <div id="trace-tree-view" style="display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                <div style="font-size: 0.85rem; font-weight: bold; color: var(--accent-color); margin-bottom: 0.75rem;" id="trace-tree-title">Span Hierarchy Tree</div>
+                <div id="trace-tree-content" style="font-family: monospace; font-size: 0.8rem; background: var(--bg-primary); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); max-height: 250px; overflow-y: auto;"></div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script type="module">
-    import { PromptChainHost, MessageContext, CallbackEvents, parseFrontmatter } from './src/index.js';
+    import { PromptChainHost, MessageContext, CallbackEvents, parseFrontmatter, Trace, IndexedDBTraceExporter } from './src/index.js';
 
     const logBox = document.getElementById('logs');
     const resultBox = document.getElementById('result');
@@ -283,6 +303,139 @@
         }
     });
 
+    window.activeTracesList = [];
+    let selectedTrace = null;
+    const tracesListEl = document.getElementById('traces-list');
+    const traceTreeView = document.getElementById('trace-tree-view');
+    const traceTreeContent = document.getElementById('trace-tree-content');
+    const traceTreeTitle = document.getElementById('trace-tree-title');
+    const downloadOtlpBtn = document.getElementById('download-otlp-btn');
+    const clearTracesBtn = document.getElementById('clear-traces-btn');
+
+    function renderTracesList() {
+        if (window.activeTracesList.length === 0) {
+            tracesListEl.innerHTML = '<div class="empty-result" style="color: var(--text-secondary); margin: auto; padding: 1.5rem 0; text-align: center;">No completed traces yet. Run an agent task to generate hierarchical OpenTelemetry spans!</div>';
+            downloadOtlpBtn.disabled = true;
+            traceTreeView.style.display = 'none';
+            return;
+        }
+
+        tracesListEl.innerHTML = '';
+        window.activeTracesList.forEach((tData, idx) => {
+            const traceObj = Trace.fromJSON(tData);
+            const item = document.createElement('div');
+            item.className = 'trace-item' + (selectedTrace && selectedTrace.traceId === traceObj.traceId ? ' active' : '');
+            const dur = traceObj.durationMs !== null ? `${traceObj.durationMs}ms` : 'N/A';
+            const statusCode = traceObj.status?.code || 'OK';
+            const badgeClass = statusCode === 'ERROR' ? 'error' : 'ok';
+            const spanCount = traceObj.spans ? traceObj.spans.size : 0;
+
+            item.innerHTML = `
+                <div>
+                    <div class="trace-item-title">
+                        <span>🔍 ${traceObj.name || 'AgentTrace'}</span>
+                        <span class="trace-badge ${badgeClass}">${statusCode}</span>
+                    </div>
+                    <div class="trace-meta" style="margin-top: 0.35rem;">
+                        <span>ID: ${traceObj.traceId.slice(0, 12)}...</span>
+                        <span>⏱️ ${dur}</span>
+                        <span>📦 ${spanCount} spans</span>
+                    </div>
+                </div>
+                <div style="color: var(--accent-color); font-size: 0.85rem;">View Tree ➔</div>
+            `;
+
+            item.onclick = () => {
+                selectedTrace = traceObj;
+                renderTracesList();
+                renderTraceTree(traceObj);
+            };
+
+            tracesListEl.appendChild(item);
+        });
+    }
+
+    function renderTraceTree(traceObj) {
+        traceTreeView.style.display = 'block';
+        traceTreeTitle.textContent = `Span Hierarchy Tree — ${traceObj.name} (${traceObj.traceId})`;
+        downloadOtlpBtn.disabled = false;
+
+        const spans = Array.from(traceObj.spans.values());
+        const rootSpans = spans.filter(s => !s.parentSpanId || !traceObj.spans.has(s.parentSpanId));
+
+        let html = '';
+        const buildSpanRows = (span, depth = 0) => {
+            const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth);
+            const dur = span.durationMs !== null ? `${span.durationMs}ms` : 'in-progress';
+            const status = span.status?.code || 'OK';
+            const color = status === 'ERROR' ? '#ef4444' : (depth === 0 ? '#6366f1' : '#10b981');
+            const icon = depth === 0 ? '👑' : (span.name.startsWith('Tool') ? '🛠️' : (span.name.startsWith('LLM') ? '🧠' : '⚡'));
+
+            html += `<div class="span-row" style="color: ${color};">`;
+            html += `${indent}${depth > 0 ? '└─ ' : ''}${icon} <strong>[Span: ${span.name}]</strong> <span style="color: var(--text-secondary); font-size: 0.75rem;">(${dur} - ${status}) [ID: ${span.spanId.slice(0, 8)}]</span>`;
+            if (span.attributes && Object.keys(span.attributes).length > 0) {
+                const attrs = JSON.stringify(span.attributes);
+                if (attrs !== '{}') {
+                    html += `<div style="color: var(--text-secondary); font-size: 0.75rem; margin-left: ${depth * 16 + 20}px;">Attributes: ${attrs.length > 80 ? attrs.slice(0, 80) + '...' : attrs}</div>`;
+                }
+            }
+            if (span.events && span.events.length > 0) {
+                span.events.forEach(ev => {
+                    html += `<div style="color: #fbbf24; font-size: 0.75rem; margin-left: ${depth * 16 + 20}px;">• Event: ${ev.name} ${JSON.stringify(ev.attributes || {})}</div>`;
+                });
+            }
+            html += `</div>`;
+
+            const children = spans.filter(s => s.parentSpanId === span.spanId);
+            children.forEach(c => buildSpanRows(c, depth + 1));
+        };
+
+        rootSpans.forEach(r => buildSpanRows(r, 0));
+        traceTreeContent.innerHTML = html || 'No spans recorded.';
+    }
+
+    downloadOtlpBtn.onclick = () => {
+        if (!selectedTrace) return;
+        const otlpData = selectedTrace.toOTLP();
+        const blob = new Blob([JSON.stringify(otlpData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `trace-${selectedTrace.traceId}.otlp.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    clearTracesBtn.onclick = async () => {
+        window.activeTracesList = [];
+        selectedTrace = null;
+        renderTracesList();
+        try {
+            const exporter = new IndexedDBTraceExporter();
+            await exporter.clearTraces();
+        } catch (e) {}
+    };
+
+    window.addEventListener(CallbackEvents.traceComplete || "on_trace_complete", (e) => {
+        if (e.detail) {
+            window.activeTracesList.unshift(e.detail);
+            renderTracesList();
+        }
+    });
+
+    async function loadPersistedTraces() {
+        try {
+            const exporter = new IndexedDBTraceExporter();
+            const persisted = await exporter.getTraces({ limit: 15 });
+            if (persisted && persisted.length > 0) {
+                window.activeTracesList = persisted.map(t => t.toJSON());
+                renderTracesList();
+            }
+        } catch (e) {}
+    }
+
     async function init() {
         if (!window.LanguageModel) {
             resultBox.innerHTML = `<span style="color: #ef4444;">Error: LanguageModel is not available. Please enable Gemini Prompt API flags in Chrome.</span>`;
@@ -298,6 +451,7 @@
         }
 
         await loadSkillsForUI();
+        await loadPersistedTraces();
 
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
