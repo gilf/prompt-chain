@@ -113,3 +113,58 @@ export async function compressHistory(historyTurns, conversationSummary, askLLM,
 
     return { historyTurns: updatedHistory, updatedSummary };
 }
+
+export function openIndexedDB(dbName, requiredStores = []) {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+            resolve(null);
+            return;
+        }
+        const request = indexedDB.open(dbName);
+
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            for (const store of requiredStores) {
+                const storeName = typeof store === 'string' ? store : store.name;
+                const keyPath = typeof store === 'string' ? (storeName === 'conversations' ? 'sessionId' : (storeName === 'checkpoints' ? 'checkpointId' : (storeName === 'traces' ? 'traceId' : 'id'))) : store.keyPath;
+                if (!db.objectStoreNames.contains(storeName)) {
+                    db.createObjectStore(storeName, { keyPath });
+                }
+            }
+        };
+
+        request.onsuccess = (e) => {
+            const db = e.target.result;
+            const missingStores = [];
+            for (const store of requiredStores) {
+                const storeName = typeof store === 'string' ? store : store.name;
+                if (!db.objectStoreNames.contains(storeName)) {
+                    missingStores.push(store);
+                }
+            }
+
+            if (missingStores.length > 0) {
+                const nextVersion = db.version + 1;
+                db.close();
+                const upgradeReq = indexedDB.open(dbName, nextVersion);
+                upgradeReq.onupgradeneeded = (evt) => {
+                    const upgradeDb = evt.target.result;
+                    for (const store of requiredStores) {
+                        const storeName = typeof store === 'string' ? store : store.name;
+                        const keyPath = typeof store === 'string' ? (storeName === 'conversations' ? 'sessionId' : (storeName === 'checkpoints' ? 'checkpointId' : (storeName === 'traces' ? 'traceId' : 'id'))) : store.keyPath;
+                        if (!upgradeDb.objectStoreNames.contains(storeName)) {
+                            upgradeDb.createObjectStore(storeName, { keyPath });
+                        }
+                    }
+                };
+                upgradeReq.onsuccess = (evt) => resolve(evt.target.result);
+                upgradeReq.onerror = (evt) => reject(evt.target.error);
+            } else {
+                resolve(db);
+            }
+        };
+
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+

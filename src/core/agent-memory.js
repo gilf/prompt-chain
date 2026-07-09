@@ -1,4 +1,5 @@
 import { BaseMessage } from "./messages.js";
+import { openIndexedDB } from "../utils.js";
 
 export class AgentMemory {
     constructor(dbName = "AgentMemoryDB", storeName = "conversations") {
@@ -7,30 +8,17 @@ export class AgentMemory {
         this.db = null;
     }
 
-    init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 2);
-
-            request.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName, { keyPath: "sessionId" });
-                }
-                if (!db.objectStoreNames.contains("checkpoints")) {
-                    db.createObjectStore("checkpoints", { keyPath: "checkpointId" });
-                }
-            };
-
-            request.onsuccess = (e) => {
-                this.db = e.target.result;
-                resolve();
-            };
-
-            request.onerror = (e) => reject(e.target.error);
-        });
+    async init() {
+        if (!this.db) {
+            this.db = await openIndexedDB(this.dbName, ["conversations", "checkpoints", "traces"]);
+        }
+        return this.db;
     }
 
-    getHistory(sessionId) {
+
+    async getHistory(sessionId) {
+        if (!this.db) await this.init();
+        if (!this.db) return { history: [], summary: "" };
         return new Promise((resolve) => {
             const tx = this.db.transaction(this.storeName, "readonly");
             const store = tx.objectStore(this.storeName);
@@ -52,7 +40,9 @@ export class AgentMemory {
         });
     }
 
-    saveHistory(sessionId, history, summary = "") {
+    async saveHistory(sessionId, history, summary = "") {
+        if (!this.db) await this.init();
+        if (!this.db) return;
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction(this.storeName, "readwrite");
             const store = tx.objectStore(this.storeName);
@@ -66,7 +56,9 @@ export class AgentMemory {
         });
     }
 
-    saveCheckpoint(checkpointId, checkpointData) {
+    async saveCheckpoint(checkpointId, checkpointData) {
+        if (!this.db) await this.init();
+        if (!this.db) return;
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction("checkpoints", "readwrite");
             const store = tx.objectStore("checkpoints");
@@ -90,7 +82,9 @@ export class AgentMemory {
         });
     }
 
-    getCheckpoint(checkpointId) {
+    async getCheckpoint(checkpointId) {
+        if (!this.db) await this.init();
+        if (!this.db) return null;
         return new Promise((resolve) => {
             const tx = this.db.transaction("checkpoints", "readonly");
             const store = tx.objectStore("checkpoints");
@@ -111,7 +105,9 @@ export class AgentMemory {
         });
     }
 
-    deleteCheckpoint(checkpointId) {
+    async deleteCheckpoint(checkpointId) {
+        if (!this.db) await this.init();
+        if (!this.db) return;
         return new Promise((resolve, reject) => {
             const tx = this.db.transaction("checkpoints", "readwrite");
             const store = tx.objectStore("checkpoints");
@@ -122,3 +118,4 @@ export class AgentMemory {
         });
     }
 }
+

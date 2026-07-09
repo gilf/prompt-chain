@@ -52,7 +52,11 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
 - **StateGraph & Multi-Agent Supervisor Swarms (`StateGraph` & `AgentSupervisor`)**:
   - Brings LangGraph-style cyclical state graphs, conditional routing, and custom channel state reducers directly to on-device Web Workers.
   - Features `AgentSupervisor` and `createAgentSupervisor` to dynamically evaluate team state and route tasks across specialized AI worker runnables using strict JSON schema output enforcement.
-- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, and interactive HITL approval cards.
+- **Enterprise Observability & Tracing (LangSmith / OpenTelemetry Equivalent)**:
+  - Upgrades flat callback logs into standardized hierarchical OpenTelemetry trace trees (`Trace`, `Span`). Automatically tracks parent-child span links (`parentSpanId`), timestamps, execution durations (`durationMs`), status codes (`SpanStatus.OK / ERROR`), and custom attributes.
+  - Features built-in multi-destination exporters (`ConsoleTraceExporter`, `IndexedDBTraceExporter`, and `OTLPTraceExporter` for HTTP OTLP telemetry dashboards).
+  - Includes a live **Interactive Trace Explorer Dashboard** in the host UI (`index.html`) with expandable parent-child tree views and one-click OTLP JSON downloads.
+- **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, interactive HITL approval cards, and trace hierarchies.
 
 ---
 
@@ -76,6 +80,11 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
 - **[src/retrievers/](file:///c:/Lectures/Demo/src/retrievers)**:
   - [indexeddb-vector-store.js](file:///c:/Lectures/Demo/src/retrievers/indexeddb-vector-store.js): Zero-dependency local vector store backed by IndexedDB (`IndexedDBVectorStore`), pluggable embedding interface (`EmbeddingsPlugin`), and exact `cosineSimilarity` calculation.
   - [semantic-retriever.js](file:///c:/Lectures/Demo/src/retrievers/semantic-retriever.js): Unified base retriever class (`SemanticRetriever`) providing vector cosine pruning and token overlap fallback.
+- **[src/observability/](file:///c:/Lectures/Demo/src/observability)**:
+  - [trace.js](file:///c:/Lectures/Demo/src/observability/trace.js): Core hierarchical primitives (`SpanStatus`, `Span`, `Trace`, and hex ID generation).
+  - [tracer.js](file:///c:/Lectures/Demo/src/observability/tracer.js): Active span stack manager and trace execution singleton (`Tracer`).
+  - [exporters.js](file:///c:/Lectures/Demo/src/observability/exporters.js): Standardized trace exporters (`SpanExporter`, `ConsoleTraceExporter`, `IndexedDBTraceExporter`, `OTLPTraceExporter`).
+  - [index.js](file:///c:/Lectures/Demo/src/observability/index.js): Observability package module entry point.
 - **[src/skills/](file:///c:/Lectures/Demo/src/skills)**:
   - [skill.js](file:///c:/Lectures/Demo/src/skills/skill.js): Dynamic skill loader and markdown frontmatter parser.
   - [skill-retriever.js](file:///c:/Lectures/Demo/src/skills/skill-retriever.js): Semantic skill retriever extending `SemanticRetriever`.
@@ -272,6 +281,24 @@ graph.addEdge("MathExpert", "supervisor");
 
 // 5. Host compiled swarm inside Web Worker runtime!
 createAgentWorker(graph.compile());
+```
+
+### 10. Enterprise Observability & OpenTelemetry Tracing (`Tracer` & Exporters)
+Bridge flat lifecycle events into hierarchical parent-child span trees with multi-destination export (Console DevTools, local IndexedDB, or remote OTLP collectors like Jaeger / OpenTelemetry Collector):
+```javascript
+import { Tracer, ConsoleTraceExporter, IndexedDBTraceExporter, OTLPTraceExporter, CallbackManager, createAgentWorker } from './src/index.js';
+
+// 1. Initialize hierarchical Tracer with desired exporters
+const tracer = new Tracer("ProductionAgentTracer")
+    .addExporter(new ConsoleTraceExporter()) // Styled parent-child tree logs in DevTools
+    .addExporter(new IndexedDBTraceExporter("AgentMemoryDB", "traces")) // Persistent local storage
+    .addExporter(new OTLPTraceExporter({ endpointUrl: "http://localhost:4318/v1/traces" })); // OTLP HTTP JSON
+
+// 2. Attach Tracer to CallbackManager (or pass directly to worker runtime)
+const callbacks = new CallbackManager().attachTracer(tracer);
+
+// 3. Spans (`AgentExecution` -> `LLMInference` / `Tool.Calculator`) are generated automatically!
+createAgentWorker(myAgentRunnable, [], callbacks);
 ```
 
 ---

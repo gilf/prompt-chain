@@ -5,3 +5,4 @@ export * from './runnables/index.js';
 export * from './retrievers/index.js';
 export * from './skills/index.js';
 export * from './tools/index.js';
+export * from './observability/index.js';
