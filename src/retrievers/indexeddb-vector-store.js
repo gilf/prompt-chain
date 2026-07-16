@@ -96,15 +96,49 @@ export class IndexedDBVectorStore {
 
     async similaritySearchWithScore(query, topK = 3) {
         let queryVector;
+        let useTokenFallback = false;
+
         if (Array.isArray(query)) {
             queryVector = query;
         } else if (typeof query === 'string' && this.embeddings && typeof this.embeddings.embedQuery === 'function') {
             queryVector = await this.embeddings.embedQuery(query);
+        } else if (typeof query === 'string') {
+            useTokenFallback = true;
         } else {
             throw new Error("similaritySearchWithScore requires either a query vector array or an embeddings plugin configured.");
         }
 
         const allDocs = await this.getAllDocuments();
+
+        if (useTokenFallback) {
+            const queryTokens = query.toLowerCase().split(/\W+/).filter(t => t.length > 2);
+            if (queryTokens.length === 0) {
+                return allDocs.slice(0, topK).map(doc => ({
+                    document: { id: doc.id, content: doc.content, metadata: doc.metadata },
+                    score: 0.0
+                }));
+            }
+
+            const scored = allDocs.map(doc => {
+                const contentLower = (doc.content || "").toLowerCase();
+                let matchCount = 0;
+                for (const token of queryTokens) {
+                    if (contentLower.includes(token)) {
+                        matchCount++;
+                    }
+                }
+                const score = matchCount / queryTokens.length;
+                return {
+                    document: { id: doc.id, content: doc.content, metadata: doc.metadata },
+                    score
+                };
+            });
+
+            return scored
+                .sort((a, b) => b.score - a.score)
+                .slice(0, topK);
+        }
+
         const scored = allDocs
             .filter(doc => Array.isArray(doc.vector) && doc.vector.length > 0)
             .map(doc => ({

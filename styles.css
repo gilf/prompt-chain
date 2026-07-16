@@ -512,3 +512,64 @@ h1 {
     line-height: 1.6;
 }
 
+/* Episodic Memory UI Styles */
+.episodic-memory-card {
+    border-top: 2px solid #a855f7;
+}
+
+.episode-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.6rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+.episode-item:hover {
+    border-color: #a855f7;
+    box-shadow: 0 2px 10px rgba(168, 85, 247, 0.15);
+}
+
+.episode-content {
+    flex: 1;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.episode-category-badge {
+    background: rgba(168, 85, 247, 0.15);
+    color: #d8b4fe;
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    font-size: 0.7rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 0.35rem;
+}
+
+.episode-delete-btn {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.episode-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.3);
+    color: #ffffff;
+}
+
+

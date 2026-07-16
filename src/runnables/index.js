@@ -13,4 +13,5 @@ export * from './structured-output-runnable.js';
 export * from './runnable-retriever.js';
 export * from './state-graph.js';
 export * from './agent-supervisor.js';
+export * from './runnable-episodic-memory.js';
 
