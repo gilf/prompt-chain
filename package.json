@@ -1,6 +1,6 @@
 {
   "name": "@gilfink/prompt-chain",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "On-Device Prompt API Chain AI Agents library",
   "type": "module",
   "main": "./dist/prompt-chain.umd.cjs",

@@ -52,6 +52,9 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
 - **StateGraph & Multi-Agent Supervisor Swarms (`StateGraph` & `AgentSupervisor`)**:
   - Brings LangGraph-style cyclical state graphs, conditional routing, and custom channel state reducers directly to on-device Web Workers.
   - Features `AgentSupervisor` and `createAgentSupervisor` to dynamically evaluate team state and route tasks across specialized AI worker runnables using strict JSON schema output enforcement.
+- **Cross-Session Episodic Memory & Semantic Fact Indexing (`RunnableEpisodicMemory`)**:
+  - Features zero-dependency persistent long-term semantic memory (`RunnableEpisodicMemory`) that indexes declarative user preferences, profiles, and historical facts across multiple agent turns and sessions using `IndexedDB` (`episodes` store) and cosine vector similarity.
+  - Can be piped directly into any LCEL sequence (`memory.pipe(agentExecutor)`) to automatically enrich incoming user prompts with relevant historical facts (`[SEMANTIC MEMORY (Top 5 Facts across sessions)]`), or invoked as ReAct structured tools (`memory.getTools()`) allowing the LLM to autonomously execute `remember`, `recall`, and `forget`.
 - **Enterprise Observability & Tracing (LangSmith / OpenTelemetry Equivalent)**:
   - Upgrades flat callback logs into standardized hierarchical OpenTelemetry trace trees (`Trace`, `Span`). Automatically tracks parent-child span links (`parentSpanId`), timestamps, execution durations (`durationMs`), status codes (`SpanStatus.OK / ERROR`), and custom attributes.
   - Features built-in multi-destination exporters (`ConsoleTraceExporter`, `IndexedDBTraceExporter`, and `OTLPTraceExporter` for HTTP OTLP telemetry dashboards).
@@ -75,6 +78,7 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [runnable-fallback.js](file:///c:/Lectures/Demo/src/runnables/runnable-fallback.js): Hybrid local/cloud model fallback routing.
   - [structured-output-runnable.js](file:///c:/Lectures/Demo/src/runnables/structured-output-runnable.js) & [validate-json-schema.js](file:///c:/Lectures/Demo/src/runnables/validate-json-schema.js): JSON Schema validation and pinpoint self-repair.
   - [runnable-retriever.js](file:///c:/Lectures/Demo/src/runnables/runnable-retriever.js): Declarative LCEL vector and semantic retriever primitive.
+  - [runnable-episodic-memory.js](file:///c:/Lectures/Demo/src/runnables/runnable-episodic-memory.js): Persistent cross-session semantic facts and profile memory (`RunnableEpisodicMemory`).
   - [state-graph.js](file:///c:/Lectures/Demo/src/runnables/state-graph.js): LangGraph-style cyclical state graphs (`StateGraph`, `CompiledStateGraph`) with conditional routing and reducers.
   - [agent-supervisor.js](file:///c:/Lectures/Demo/src/runnables/agent-supervisor.js): LLM-powered multi-agent supervisor router (`AgentSupervisor`, `createAgentSupervisor`).
 - **[src/retrievers/](file:///c:/Lectures/Demo/src/retrievers)**:
@@ -299,6 +303,37 @@ const callbacks = new CallbackManager().attachTracer(tracer);
 
 // 3. Spans (`AgentExecution` -> `LLMInference` / `Tool.Calculator`) are generated automatically!
 createAgentWorker(myAgentRunnable, [], callbacks);
+```
+
+### 11. Cross-Session Episodic Memory & Semantic Profile Indexing (`RunnableEpisodicMemory`)
+Enable long-term fact retention across sessions. `RunnableEpisodicMemory` stores facts in IndexedDB (`episodes` store) with cosine semantic similarity indices. It can be used in two complementary ways:
+
+#### A. ReAct Structured Tools (`memory.getTools()`)
+Equip ReAct agents with structured tools (`remember`, `recall`, `forget`) so the LLM can autonomously manage and recall user profiles and facts:
+```javascript
+import { Tool, createAgentWorker, RunnableEpisodicMemory } from './src/index.js';
+
+const episodicMemory = new RunnableEpisodicMemory({ dbName: "AgentMemoryDB", storeName: "episodes" });
+
+// Equip worker with standard tools AND episodic memory tools
+createAgentWorker([
+    fetchTool,
+    mathTool,
+    ...episodicMemory.getTools()
+]);
+```
+
+#### B. LCEL Pipeline Prompt Enrichment (`memory.pipe(agentExecutor)`)
+Automatically enrich incoming user queries with relevant historical facts before they reach the LLM:
+```javascript
+import { RunnableEpisodicMemory, ReActAgentExecutor } from './src/index.js';
+
+const episodicMemory = new RunnableEpisodicMemory({ dbName: "AgentMemoryDB", storeName: "episodes" });
+const agentExecutor = new ReActAgentExecutor(toolsArray);
+
+// Pipe semantic memory directly into agent loop:
+// Enriches state.userPrompt with "[SEMANTIC MEMORY (Top 5 Facts across sessions): ...]"
+const memoryAwareAgent = episodicMemory.pipe(agentExecutor);
 ```
 
 ---

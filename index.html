@@ -56,11 +56,13 @@
                 <div class="suggestion-chip" data-prompt="Please reserve 4 flight tickets from LHR to JFK.">Book Flight (LHR ✈️ JFK)</div>
                 <div class="suggestion-chip" data-prompt="I am planning a very long multi-step travel itinerary across multiple cities: first evaluate 542 * 13 for our budget calculation, then check the weather in Tokyo, book 2 flights from NYC to LAX, and summarize all observations into a comprehensive report.">Long Context Scenario (Token Buffer Test)</div>
                 <div class="suggestion-chip" data-prompt="[Multi-Agent Swarm] Search internal docs for v0.1.1 features and then calculate our system capacity: 542 * 13.">Multi-Agent Swarm (Supervisor Demo)</div>
+                <div class="suggestion-chip" data-prompt="Please remember that my favorite programming language is JavaScript and I prefer dark mode UI across all tools.">🧠 Remember User Preferences (Episodic Memory)</div>
+                <div class="suggestion-chip" data-prompt="Search long-term episodic memory to recall my UI theme preference and favorite programming language.">🔍 Recall User Preferences (Episodic Memory)</div>
             </div>
 
             <div class="controls">
                 <input type="text" id="prompt-input" placeholder="Type a prompt for the agent..." value="What is the weather in Tokyo?" />
-                <button id="run-btn">Run Agent</button>
+                <button id="run-btn" disabled>Initializing Model...</button>
             </div>
         </div>
 
@@ -98,6 +100,23 @@
             <div id="result" class="empty-result">Output will appear here...</div>
         </div>
 
+        <div class="chat-card episodic-memory-card" style="margin-top: 1.5rem;">
+            <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #a855f7;"><path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                    Long-Term Episodic Memory (Semantic Facts & Profiles across Sessions)
+                    <span id="episodic-memory-count" class="skill-badge" style="background: rgba(168, 85, 247, 0.2); border-color: #a855f7; color: #e9d5ff; margin-left: 0.5rem;">0 facts</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="refresh-episodes-btn" class="trace-action-btn" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;">🔄 Refresh</button>
+                    <button id="clear-episodes-btn" class="trace-action-btn" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;">🧹 Clear Memory</button>
+                </div>
+            </div>
+            <div id="episodes-list" style="margin-top: 1rem; max-height: 260px; overflow-y: auto;">
+                <div class="empty-result" style="color: var(--text-secondary); margin: auto; padding: 1.5rem 0; text-align: center;">No long-term facts stored yet. Ask the agent to remember your preferences or profile details across sessions!</div>
+            </div>
+        </div>
+
         <div class="chat-card trace-explorer-card" style="margin-top: 1.5rem;">
             <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -121,10 +140,11 @@
 </div>
 
 <script type="module">
-    import { PromptChainHost, MessageContext, CallbackEvents, parseFrontmatter, Trace, IndexedDBTraceExporter } from './src/index.js';
+    import { PromptChainHost, MessageContext, CallbackEvents, parseFrontmatter, Trace, IndexedDBTraceExporter, RunnableEpisodicMemory } from './src/index.js';
 
     const logBox = document.getElementById('logs');
     const resultBox = document.getElementById('result');
+    const uiEpisodicMemory = new RunnableEpisodicMemory({ dbName: "AgentMemoryDB", storeName: "episodes" });
     const runBtn = document.getElementById('run-btn');
     const input = document.getElementById('prompt-input');
     const skillsList = document.getElementById('skills-list');
@@ -165,11 +185,15 @@
     }
 
     input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') runBtn.click();
+        if (e.key === 'Enter') {
+            if (runBtn.disabled) return;
+            runBtn.click();
+        }
     });
 
     document.querySelectorAll('.suggestion-chip').forEach(chip => {
         chip.addEventListener('click', () => {
+            if (runBtn.disabled) return;
             input.value = chip.getAttribute('data-prompt');
             runBtn.click();
         });
@@ -418,11 +442,54 @@
         } catch (e) {}
     };
 
-    window.addEventListener(CallbackEvents.traceComplete || "on_trace_complete", (e) => {
+    window.addEventListener(CallbackEvents.traceComplete || "on_trace_complete", async (e) => {
         if (e.detail) {
             window.activeTracesList.unshift(e.detail);
             renderTracesList();
         }
+        await loadEpisodicMemoriesForUI();
+    });
+
+    async function loadEpisodicMemoriesForUI() {
+        const listEl = document.getElementById('episodes-list');
+        const countEl = document.getElementById('episodic-memory-count');
+        if (!listEl || !countEl) return;
+        try {
+            const episodes = await uiEpisodicMemory.getAllEpisodes();
+            countEl.textContent = `${episodes.length} fact${episodes.length === 1 ? '' : 's'}`;
+            if (episodes.length === 0) {
+                listEl.innerHTML = '<div class="empty-result" style="color: var(--text-secondary); margin: auto; padding: 1.5rem 0; text-align: center;">No long-term facts stored yet. Ask the agent to remember your preferences or profile details across sessions!</div>';
+                return;
+            }
+            listEl.innerHTML = '';
+            episodes.forEach((ep) => {
+                const item = document.createElement('div');
+                item.className = 'episode-item';
+                const dateStr = ep.timestamp ? new Date(ep.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                item.innerHTML = `
+                    <div class="episode-content">
+                        <div class="episode-category-badge">${ep.metadata?.category || 'general'}</div>
+                        <div style="font-weight: 500; margin-top: 0.2rem;">${ep.fact}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">ID: ${ep.id.slice(0, 10)}... • ${dateStr}</div>
+                    </div>
+                    <button class="episode-delete-btn" data-id="${ep.id}">Delete 🗑️</button>
+                `;
+                const deleteBtn = item.querySelector('.episode-delete-btn');
+                deleteBtn.addEventListener('click', async () => {
+                    await uiEpisodicMemory.forget(ep.id);
+                    await loadEpisodicMemoriesForUI();
+                });
+                listEl.appendChild(item);
+            });
+        } catch (e) {
+            listEl.innerHTML = '<div class="empty-result" style="color: #ef4444; padding: 1rem; text-align: center;">Failed to load episodic memory.</div>';
+        }
+    }
+
+    document.getElementById('refresh-episodes-btn')?.addEventListener('click', () => loadEpisodicMemoriesForUI());
+    document.getElementById('clear-episodes-btn')?.addEventListener('click', async () => {
+        await uiEpisodicMemory.clear();
+        await loadEpisodicMemoriesForUI();
     });
 
     async function loadPersistedTraces() {
@@ -452,6 +519,7 @@
 
         await loadSkillsForUI();
         await loadPersistedTraces();
+        await loadEpisodicMemoriesForUI();
 
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";
@@ -493,6 +561,7 @@
         const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : "session_" + Date.now();
 
         runBtn.addEventListener('click', async () => {
+            if (runBtn.disabled) return;
             logBox.innerHTML = '<div class="empty-result" style="color: var(--text-secondary); margin: auto;">Streaming thoughts...</div>';
             resultBox.innerText = 'Agent is thinking...';
             resultBox.classList.remove('empty-result');
@@ -500,6 +569,7 @@
 
             try {
                 resultBox.innerText = await activeHost.runAgent(input.value, sessionId);
+                await loadEpisodicMemoriesForUI();
             } catch (error) {
 
                 resultBox.innerHTML = `<span style="color: #ef4444;">Error: ${error.message}</span>`;

@@ -1,4 +1,4 @@
-import { Tool, createAgentWorker, loadSkillFromUrl } from '../index.js';
+import { Tool, createAgentWorker, loadSkillFromUrl, RunnableEpisodicMemory } from '../index.js';
 
 const fetchTool = new Tool(
     "FetchData",
@@ -38,5 +38,7 @@ const bookFlightTool = new Tool(
     { requiresApproval: true }
 );
 
+const episodicMemory = new RunnableEpisodicMemory({ dbName: "AgentMemoryDB", storeName: "episodes" });
 const weatherSkill = await loadSkillFromUrl('../../skills/weather');
-createAgentWorker([fetchTool, mathTool, bookFlightTool], [weatherSkill]);
+createAgentWorker([fetchTool, mathTool, bookFlightTool, ...episodicMemory.getTools()], [weatherSkill]);
+

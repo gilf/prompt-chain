@@ -23,16 +23,20 @@ export class SemanticRetriever {
         if (this.items.length <= topK) return this.items;
 
         if (this.vectorStore) {
-            const results = await this.vectorStore.similaritySearchWithScore(userPrompt, topK);
-            const matched = [];
-            for (const res of results) {
-                const name = res.document.metadata?.name || res.document.id;
-                const found = this.items.find(i => i.name.toLowerCase() === name.toLowerCase() || i.name === name);
-                if (found && !matched.includes(found)) {
-                    matched.push(found);
+            try {
+                const results = await this.vectorStore.similaritySearchWithScore(userPrompt, topK);
+                const matched = [];
+                for (const res of results) {
+                    const name = res.document.metadata?.name || res.document.id;
+                    const found = this.items.find(i => i.name.toLowerCase() === name.toLowerCase() || i.name === name);
+                    if (found && !matched.includes(found)) {
+                        matched.push(found);
+                    }
                 }
+                if (matched.length > 0) return matched;
+            } catch (e) {
+                console.warn("Vector store similarity search failed, falling back to token-overlap scoring:", e);
             }
-            if (matched.length > 0) return matched;
         }
 
         const query = userPrompt.toLowerCase();

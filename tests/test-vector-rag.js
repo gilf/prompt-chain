@@ -75,6 +75,21 @@ async function runVectorRagTests() {
     }
     console.log("PASS: ToolRetriever dynamically pruned tool manifest using vector cosine similarity.");
 
+    // Test 5: Token-overlap keyword search fallback (no embeddings configured)
+    console.log("Test 5: Verifying token-overlap keyword fallback when no embeddings model is configured...");
+    const fallbackStore = new IndexedDBVectorStore({ embeddings: null });
+    await fallbackStore.addDocuments([
+        { id: "pref1", content: "User prefers Python programming language.", metadata: { category: "preferences" } },
+        { id: "pref2", content: "User prefers dark mode UI theme.", metadata: { category: "preferences" } },
+        { id: "pref3", content: "User likes to fly with Delta.", metadata: { category: "travel" } }
+    ]);
+
+    const fallbackResults = await fallbackStore.similaritySearchWithScore("favorite programming language", 1);
+    if (fallbackResults.length === 0 || fallbackResults[0].document.id !== "pref1") {
+        throw new Error(`Test 5 failed: Expected pref1 for fallback query, got ${JSON.stringify(fallbackResults)}`);
+    }
+    console.log("PASS: similaritySearchWithScore gracefully fell back to token-overlap scoring.");
+
     console.log("=== ALL VECTOR RAG & SEMANTIC RETRIEVAL TESTS PASSED SUCCESSFULLY! ===");
 }
 
