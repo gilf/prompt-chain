@@ -20,8 +20,8 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js) runs in a background thread to orchestrate the agent loop, execute tools, and handle errors, keeping the user interface completely responsive.
 - **Dynamic Skill & Tool Retrieval (Lightweight RAG)**: Matches the user prompt against loaded skills and tools using a token-overlap scorer, feeding only relevant context to the prompt and preserving token limits.
 - **Typed Message History & Roles (LangChain Standard)**:
-  - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/messages.js).
-  - Uses [agent-memory.js](file:///c:/Lectures/Demo/src/agent-memory.js) to persist object-oriented message schemas directly in **IndexedDB**.
+  - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/core/messages.js).
+  - Uses [agent-memory.js](file:///c:/Lectures/Demo/src/core/agent-memory.js) to persist object-oriented message schemas directly in **IndexedDB**.
   - Implements automatic conversation summarization (defined in [utils.js](file:///c:/Lectures/Demo/src/utils.js)) once the chat history exceeds 5 turns, ensuring the context window remains optimized.
 - **Complex Structured Tool Schemas (Multi-Parameter Tools)**:
   - Tools extend `Runnable` and accept structured JSON Schema parameter definitions. Supports both legacy string inputs and complex multi-parameter objects (e.g., `bookFlight({ origin: "NYC", dest: "LAX", passengers: 2 })`).
@@ -79,6 +79,9 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [structured-output-runnable.js](file:///c:/Lectures/Demo/src/runnables/structured-output-runnable.js) & [validate-json-schema.js](file:///c:/Lectures/Demo/src/runnables/validate-json-schema.js): JSON Schema validation and pinpoint self-repair.
   - [runnable-retriever.js](file:///c:/Lectures/Demo/src/runnables/runnable-retriever.js): Declarative LCEL vector and semantic retriever primitive.
   - [runnable-episodic-memory.js](file:///c:/Lectures/Demo/src/runnables/runnable-episodic-memory.js): Persistent cross-session semantic facts and profile memory (`RunnableEpisodicMemory`).
+  - [llm-runnable.js](file:///c:/Lectures/Demo/src/runnables/llm-runnable.js): Adapter runnable wrapping prompt inference functions (`LLMRunnable`).
+  - [cloud-fallback-llm-runnable.js](file:///c:/Lectures/Demo/src/runnables/cloud-fallback-llm-runnable.js): Remote cloud API fallback runnable (`CloudFallbackLLMRunnable`).
+  - [json-output-parser-runnable.js](file:///c:/Lectures/Demo/src/runnables/json-output-parser-runnable.js): Output parsing runnable extracting JSON from raw LLM responses (`JSONOutputParserRunnable`).
   - [state-graph.js](file:///c:/Lectures/Demo/src/runnables/state-graph.js): LangGraph-style cyclical state graphs (`StateGraph`, `CompiledStateGraph`) with conditional routing and reducers.
   - [agent-supervisor.js](file:///c:/Lectures/Demo/src/runnables/agent-supervisor.js): LLM-powered multi-agent supervisor router (`AgentSupervisor`, `createAgentSupervisor`).
 - **[src/retrievers/](file:///c:/Lectures/Demo/src/retrievers)**:
@@ -93,10 +96,12 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [skill.js](file:///c:/Lectures/Demo/src/skills/skill.js): Dynamic skill loader and markdown frontmatter parser.
   - [skill-retriever.js](file:///c:/Lectures/Demo/src/skills/skill-retriever.js): Semantic skill retriever extending `SemanticRetriever`.
 - **[src/tools/](file:///c:/Lectures/Demo/src/tools)**:
+  - [tool.js](file:///c:/Lectures/Demo/src/tools/tool.js): Enterprise tool runnable primitive (`Tool`) encapsulating executable logic, parameter schemas, and HITL approval flags.
   - [tool-retriever.js](file:///c:/Lectures/Demo/src/tools/tool-retriever.js): Semantic tool retriever extending `SemanticRetriever`.
 - **[src/core/](file:///c:/Lectures/Demo/src/core)**:
   - [prompt-chain-host.js](file:///c:/Lectures/Demo/src/core/prompt-chain-host.js): Main thread session manager, event dispatcher, and Prompt API host bridge.
-  - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js): Universal Web Worker agent runtime host & `ReActAgentExecutor`.
+  - [prompt-chain-worker.js](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js): Universal Web Worker agent runtime host & worker RPC communication controller.
+  - [react-agent-executor.js](file:///c:/Lectures/Demo/src/core/react-agent-executor.js): Core ReAct reasoning agent executor (`ReActAgentExecutor`) managing multi-turn reasoning loops, tool retries, schema self-correction, and HITL interruptions.
   - [callbacks.js](file:///c:/Lectures/Demo/src/core/callbacks.js): Global `CallbackManager` for structured event emitting and cross-thread token streaming.
   - [messages.js](file:///c:/Lectures/Demo/src/core/messages.js): Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
   - [prompt-template.js](file:///c:/Lectures/Demo/src/core/prompt-template.js): LCEL-pipeable prompt formatting component.
