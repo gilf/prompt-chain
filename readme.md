@@ -12,6 +12,9 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
 ## Key Features
 
 - **On-Device LLM Inference**: Runs entirely in the browser using Chrome's built-in `LanguageModel` API (`window.LanguageModel`), eliminating the need for external API keys or network latency.
+- **Pluggable Model Providers (Zero Third-Party Dependencies)**: 
+  - Supports Chrome native Built-in AI (`ChromeBuiltInAIPlugin`), local **Ollama** REST servers (`OllamaPlugin`), in-browser/Web Worker **Transformers.js** ONNX models (`TransformersJSPlugin`), and custom functional backends (`CustomModelPlugin`).
+  - Modular plugin system (`BaseModelPlugin`) allows switching between on-device Gemini Nano, local open-weight models (Llama 3, Mistral, Qwen 2.5), and custom LLMs without external npm runtime dependencies.
 - **Composable Chains & Universal Agent Runtime (LCEL)**: 
   - Features declarative primitive composition via [src/runnables/](file:///c:/Lectures/Demo/src/runnables) (`RunnableSequence`, `RunnableParallel`, `.pipe()`, `.bind()`).
   - [createAgentWorker()](file:///c:/Lectures/Demo/src/core/prompt-chain-worker.js) acts as a **Universal Agent Runtime Host**. It accepts either legacy tool arrays (to spin up default ReAct loops via `ReActAgentExecutor`) or **any custom Runnable chain topology**.
@@ -106,11 +109,18 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [messages.js](file:///c:/Lectures/Demo/src/core/messages.js): Standard LangChain typed message classes (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`).
   - [prompt-template.js](file:///c:/Lectures/Demo/src/core/prompt-template.js): LCEL-pipeable prompt formatting component.
   - [agent-memory.js](file:///c:/Lectures/Demo/src/core/agent-memory.js): IndexedDB persistent conversation storage manager.
+- **[src/models/](file:///c:/Lectures/Demo/src/models)**:
+  - [base-model-plugin.js](file:///c:/Lectures/Demo/src/models/base-model-plugin.js): Abstract base class defining standard contract (`init`, `generate`, `measureContextUsage`, `getContextStats`, `destroy`).
+  - [chrome-built-in-ai-plugin.js](file:///c:/Lectures/Demo/src/models/chrome-built-in-ai-plugin.js): Native Chrome `window.LanguageModel` (Gemini Nano) inference plugin.
+  - [ollama-plugin.js](file:///c:/Lectures/Demo/src/models/ollama-plugin.js): Native `fetch()` REST API integration for local Ollama servers (supporting `/api/chat`, `/api/generate`, NDJSON streaming, and JSON schema formatting).
+  - [transformers-js-plugin.js](file:///c:/Lectures/Demo/src/models/transformers-js-plugin.js): In-browser / Web Worker ONNX inference using Hugging Face Transformers.js supporting custom pipelines, lazy loaders, and `TextStreamer` token callbacks.
+  - [custom-model-plugin.js](file:///c:/Lectures/Demo/src/models/custom-model-plugin.js): Flexible functional wrapper allowing custom `generateFn`, `initFn`, and `measureContextFn` callbacks.
 - **[src/examples/](file:///c:/Lectures/Demo/src/examples)**:
   - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
   - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
   - [supervisor-demo.js](file:///c:/Lectures/Demo/src/examples/supervisor-demo.js): Demonstration of an LLM-supervised multi-agent swarm (`Researcher` + `MathExpert`).
-- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, and cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)).
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, pluggable model plugins ([test-model-plugins.js](file:///c:/Lectures/Demo/tests/test-model-plugins.js)), and cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)).
+
 
 
 ---
@@ -340,6 +350,58 @@ const agentExecutor = new ReActAgentExecutor(toolsArray);
 // Enriches state.userPrompt with "[SEMANTIC MEMORY (Top 5 Facts across sessions): ...]"
 const memoryAwareAgent = episodicMemory.pipe(agentExecutor);
 ```
+
+### 12. Pluggable Model Plugins (Ollama, Transformers.js, Chrome Built-in AI, Custom)
+Easily swap model inference providers when instantiating `PromptChainHost`:
+
+#### A. Ollama Local REST Server (`OllamaPlugin`)
+Connect to a local Ollama instance (`http://localhost:11434`) using native `fetch()` and NDJSON streaming:
+```javascript
+import { PromptChainHost, OllamaPlugin } from '@gilfink/prompt-chain';
+
+const host = new PromptChainHost('./worker.js', {
+    model: new OllamaPlugin({
+        model: 'llama3',
+        baseUrl: 'http://localhost:11434',
+        apiEndpoint: '/api/chat'
+    })
+});
+
+await host.init("You are a helpful assistant.");
+const response = await host.runAgent("Analyze user sentiment.");
+```
+
+#### B. Transformers.js In-Browser ONNX Models (`TransformersJSPlugin`)
+Run Hugging Face models directly inside Web Workers using ONNX runtime and Transformers.js:
+```javascript
+import { PromptChainHost, TransformersJSPlugin } from '@gilfink/prompt-chain';
+
+const host = new PromptChainHost('./worker.js', {
+    model: new TransformersJSPlugin({
+        modelId: 'Xenova/Qwen1.5-0.5B-Chat',
+        pipelineLoader: async (task, modelId) => {
+            const { pipeline } = await import('@xenova/transformers');
+            return await pipeline(task, modelId);
+        }
+    })
+});
+```
+
+#### C. Custom Model Callbacks (`CustomModelPlugin`)
+Supply your own custom generate and token streaming functions:
+```javascript
+import { PromptChainHost, CustomModelPlugin } from '@gilfink/prompt-chain';
+
+const host = new PromptChainHost('./worker.js', {
+    model: new CustomModelPlugin({
+        generateFn: async (payload, onToken) => {
+            if (onToken) onToken("Streaming token...");
+            return JSON.stringify({ thought: "Custom LLM reasoning", finalAnswer: "Result" });
+        }
+    })
+});
+```
+
 
 ---
 
