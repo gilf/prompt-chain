@@ -1,87 +1,57 @@
 import { MessageContext, CallbackEvents } from "../consts.js";
+import { ChromeBuiltInAIPlugin } from "../models/index.js";
 
 export class LLMSessionManager {
-    constructor() {
-        this.session = null;
+    /**
+     * @param {BaseModelPlugin} [modelPlugin] - Model plugin instance (defaults to ChromeBuiltInAIPlugin).
+     */
+    constructor(modelPlugin = null) {
+        this.modelPlugin = modelPlugin || new ChromeBuiltInAIPlugin();
+    }
+
+    get session() {
+        return this.modelPlugin.session || this.modelPlugin;
     }
 
     async init(systemPrompt) {
-        this.session = await LanguageModel.create({
-            systemPrompt: systemPrompt,
-            monitor(m) {
-                m.addEventListener('downloadprogress', (e) => {
-                    window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, {
-                        detail: {
-                            event: CallbackEvents.modelDownloadProgress,
-                            loaded: e.loaded,
-                            total: e.total
-                        }
-                    }));
-                });
-            }
-        });
-        if (this.session) {
-            const overflowHandler = () => {
-                window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: { event: CallbackEvents.contextOverflow, data: { warning: "Context window overflow warning triggered." } } }));
-            };
-            if ('oncontextoverflow' in this.session) {
-                this.session.oncontextoverflow = overflowHandler;
-            } else if (typeof this.session.addEventListener === 'function') {
-                this.session.addEventListener('contextoverflow', overflowHandler);
-            }
-        }
+        await this.modelPlugin.init(systemPrompt);
     }
 
     async handlePromptRequest(payload, onToken) {
-        const options = {};
-        if (payload.schema) {
-            options.responseConstraint = payload.schema;
-            options.responseSchema = payload.schema;
-        }
-        if (typeof this.session.promptStreaming === 'function') {
-            const stream = this.session.promptStreaming(payload.prompt, options);
-            let fullResponse = "";
-            for await (const chunk of stream) {
-                let delta = "";
-                if (fullResponse && chunk.startsWith(fullResponse)) {
-                    delta = chunk.slice(fullResponse.length);
-                    fullResponse = chunk;
-                } else {
-                    delta = chunk;
-                    fullResponse += chunk;
-                }
-                if (delta) {
-                    onToken(delta);
-                }
-            }
-            return fullResponse;
-        } else {
-            return await this.session.prompt(payload.prompt, options);
-        }
+        return await this.modelPlugin.generate(payload, onToken);
     }
 
     async measureContextUsage(input) {
-        if (typeof this.session?.measureContextUsage === 'function') {
-            return await this.session.measureContextUsage(input);
-        } else if (typeof this.session?.measureInputUsage === 'function') {
-            return await this.session.measureInputUsage(input);
-        } else {
-            const str = typeof input === 'string' ? input : JSON.stringify(input || '');
-            return Math.ceil(str.length / 4);
-        }
+        return await this.modelPlugin.measureContextUsage(input);
     }
 
     getContextStats() {
-        const usage = this.session?.contextUsage ?? this.session?.inputUsage ?? 0;
-        const windowQuota = this.session?.contextWindow ?? this.session?.inputQuota ?? 4096;
-        return { usage, window: windowQuota };
+        return this.modelPlugin.getContextStats();
+    }
+
+    async destroy() {
+        if (this.modelPlugin && typeof this.modelPlugin.destroy === 'function') {
+            await this.modelPlugin.destroy();
+        }
     }
 }
 
 export class PromptChainHost {
-    constructor(workerUrl) {
-        this.worker = new Worker(workerUrl, { type: 'module' });
-        this.llmManager = new LLMSessionManager();
+    /**
+     * @param {string|Worker} workerUrlOrWorker - Worker script URL or instantiated Worker object.
+     * @param {Object} [options={}] - Host options.
+     * @param {BaseModelPlugin} [options.model] - Model plugin instance (OllamaPlugin, TransformersJSPlugin, ChromeBuiltInAIPlugin, CustomModelPlugin).
+     * @param {LLMSessionManager} [options.llmManager] - Custom LLMSessionManager instance.
+     */
+    constructor(workerUrlOrWorker, options = {}) {
+        if (typeof workerUrlOrWorker === 'string') {
+            this.worker = new Worker(workerUrlOrWorker, { type: 'module' });
+        } else {
+            this.worker = workerUrlOrWorker;
+        }
+
+        const plugin = options.model || options.modelPlugin;
+        this.llmManager = options.llmManager || new LLMSessionManager(plugin);
         this.callbacks = new Map();
         this.msgId = 0;
 
@@ -113,16 +83,21 @@ export class PromptChainHost {
                 }
             },
             [MessageContext.agentLog]: (id, payload) => {
-                window.dispatchEvent(new CustomEvent(MessageContext.agentLog, { detail: payload }));
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent(MessageContext.agentLog, { detail: payload }));
+                }
             },
             [MessageContext.agentCallbackEvent]: (id, payload) => {
-                window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: payload }));
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent(CallbackEvents.eventDispatch, { detail: payload }));
+                }
             },
             [MessageContext.agentTraceComplete]: (id, payload) => {
-                window.dispatchEvent(new CustomEvent(CallbackEvents.traceComplete || "on_trace_complete", { detail: payload }));
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent(CallbackEvents.traceComplete || "on_trace_complete", { detail: payload }));
+                }
             },
             [MessageContext.agentComplete]: (id, payload) => {
-
                 const cb = this.callbacks.get(id);
                 if (cb) {
                     cb.resolve(payload);
@@ -145,7 +120,9 @@ export class PromptChainHost {
             }
         };
 
-        this.worker.onmessage = this.handleWorkerMessage.bind(this);
+        if (this.worker && typeof this.worker.onmessage !== 'undefined') {
+            this.worker.onmessage = this.handleWorkerMessage.bind(this);
+        }
     }
 
     get session() {
@@ -191,13 +168,14 @@ export class PromptChainHost {
     }
 
     terminate() {
-        if (this.worker) {
+        if (this.worker && typeof this.worker.terminate === 'function') {
             this.worker.terminate();
             this.worker = null;
         }
-        if (this.llmManager?.session && typeof this.llmManager.session.destroy === 'function') {
-            try { this.llmManager.session.destroy(); } catch(e) {}
+        if (this.llmManager) {
+            this.llmManager.destroy();
         }
     }
 }
+
 
