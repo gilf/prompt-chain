@@ -33,7 +33,11 @@ export function parseFrontmatter(markdown) {
 }
 
 export async function loadSkillFromUrl(baseUrl) {
-    const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+    let resolvedBaseUrl = baseUrl;
+    if (typeof baseUrl === 'string' && !baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        resolvedBaseUrl = new URL(baseUrl, typeof location !== 'undefined' ? location.href : undefined).href;
+    }
+    const cleanBaseUrl = String(resolvedBaseUrl).replace(/\/$/, '');
 
     const skillMdUrl = `${cleanBaseUrl}/SKILL.md`;
     const res = await fetch(skillMdUrl);

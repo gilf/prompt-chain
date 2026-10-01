@@ -29,7 +29,7 @@
             </div>
             <div style="margin-top: 0.75rem;">
                 <div style="width: 100%; background: rgba(255,255,255,0.1); border-radius: 999px; height: 10px; overflow: hidden;">
-                    <div id="download-progress-bar" style="width: 0%; background: #3b82f6; height: 100%; transition: width 0.3s ease;"></div>
+                    <div id="download-progress-bar" style="width: 0; background: #3b82f6; height: 100%; transition: width 0.3s ease;"></div>
                 </div>
                 <div id="download-progress-text" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; text-align: right;">0 MB / 0 MB (0%)</div>
             </div>
@@ -152,7 +152,8 @@
 
     async function loadSkillsForUI() {
         try {
-            const res = await fetch('./skills/weather/SKILL.md');
+            const skillUrl = new URL('./skills/weather/SKILL.md', import.meta.url).href;
+            const res = await fetch(skillUrl);
             if (res.ok) {
                 const markdown = await res.text();
                 const { attributes, body } = parseFrontmatter(markdown);
@@ -345,7 +346,7 @@
         }
 
         tracesListEl.innerHTML = '';
-        window.activeTracesList.forEach((tData, idx) => {
+        window.activeTracesList.forEach((tData) => {
             const traceObj = Trace.fromJSON(tData);
             const item = document.createElement('div');
             item.className = 'trace-item' + (selectedTrace && selectedTrace.traceId === traceObj.traceId ? ' active' : '');
@@ -504,9 +505,14 @@
     }
 
     async function init() {
+        await loadSkillsForUI();
+        await loadPersistedTraces();
+        await loadEpisodicMemoriesForUI();
+
         if (!window.LanguageModel) {
-            resultBox.innerHTML = `<span style="color: #ef4444;">Error: LanguageModel is not available. Please enable Gemini Prompt API flags in Chrome.</span>`;
+            resultBox.innerHTML = `<span style="color: #ef4444;">Error: LanguageModel is not available. Please enable Gemini Prompt API flags in Chrome (chrome://flags/#prompt-api-for-gemini-nano).</span>`;
             resultBox.classList.remove('empty-result');
+            runBtn.textContent = "LanguageModel API Missing";
             return;
         }
 
@@ -514,12 +520,9 @@
         if (availability === "unavailable") {
             resultBox.innerHTML = `<span style="color: #ef4444;">LanguageModel API is not available on this device/browser.</span>`;
             resultBox.classList.remove('empty-result');
+            runBtn.textContent = "LanguageModel API Unavailable";
             return;
         }
-
-        await loadSkillsForUI();
-        await loadPersistedTraces();
-        await loadEpisodicMemoriesForUI();
 
         runBtn.disabled = true;
         runBtn.textContent = "Initializing Model...";

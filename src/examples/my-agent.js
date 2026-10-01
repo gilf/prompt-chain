@@ -39,6 +39,7 @@ const bookFlightTool = new Tool(
 );
 
 const episodicMemory = new RunnableEpisodicMemory({ dbName: "AgentMemoryDB", storeName: "episodes" });
-const weatherSkill = await loadSkillFromUrl('../../skills/weather');
+const weatherSkillUrl = new URL('../../skills/weather', import.meta.url).href;
+const weatherSkill = await loadSkillFromUrl(weatherSkillUrl);
 createAgentWorker([fetchTool, mathTool, bookFlightTool, ...episodicMemory.getTools()], [weatherSkill]);
 
