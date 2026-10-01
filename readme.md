@@ -7,6 +7,12 @@
 An interactive, on-device AI agent platform that runs inside a Web Worker. 
 It leverages **Prompt API** for private, local, and cost-free inference, combining custom tools, modular skills, persistent long-term memory, and a declarative **LangChain Expression Language (LCEL)** pipeline architecture.
 
+<div align="center">
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://gilf.github.io/prompt-chain/)
+
+</div>
+
 ---
 
 ## Key Features
