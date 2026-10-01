@@ -151,10 +151,23 @@ export class IndexedDBTraceExporter extends SpanExporter {
 export class OTLPTraceExporter extends SpanExporter {
     constructor({ endpointUrl = "http://localhost:4318/v1/traces", headers = {} } = {}) {
         super();
-        this.endpointUrl = endpointUrl;
+        this.endpointUrl = OTLPTraceExporter.validateEndpointUrl(endpointUrl);
         this.headers = Object.assign({
             "Content-Type": "application/json"
         }, headers);
+    }
+
+    static validateEndpointUrl(endpointUrl) {
+        let parsed;
+        try {
+            parsed = new URL(endpointUrl);
+        } catch (err) {
+            throw new Error(`OTLPTraceExporter: Invalid endpointUrl "${endpointUrl}": ${err.message}`);
+        }
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            throw new Error(`OTLPTraceExporter: endpointUrl must use http or https, got "${parsed.protocol}"`);
+        }
+        return parsed.toString();
     }
 
     async export(trace) {
