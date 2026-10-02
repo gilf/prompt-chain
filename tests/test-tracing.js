@@ -100,6 +100,15 @@ async function runTests() {
 
     const otlpExporter = new OTLPTraceExporter({ endpointUrl: "http://localhost:4318/v1/traces" });
     assert.strictEqual(otlpExporter.headers["Content-Type"], "application/json");
+    assert.strictEqual(otlpExporter.endpointUrl, "http://localhost:4318/v1/traces");
+
+    assert.throws(() => {
+        new OTLPTraceExporter({ endpointUrl: "invalid-url" });
+    }, /Invalid endpointUrl/);
+
+    assert.throws(() => {
+        new OTLPTraceExporter({ endpointUrl: "ftp://localhost:4318/v1/traces" });
+    }, /must use http or https/);
 
     const idbExporter = new IndexedDBTraceExporter();
     assert.strictEqual(idbExporter.storeName, "traces");
