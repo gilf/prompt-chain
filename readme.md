@@ -411,9 +411,9 @@ const host = new PromptChainHost('./worker.js', {
 
 ---
 
-## Prerequisites (How to Setup Chrome Built-in AI)
+## How to Setup Chrome Built-in AI for old Chrome versions
 
-This project requires a Chrome version (or Chromium-based browser like Chrome Canary) with the experimental Prompt API enabled.
+Prompt API is enabled since Chrome 148. If you are using previous versions of Chrome, please do the following to enable it:
 
 1. Open Google Chrome.
 2. Navigate to `chrome://flags/#optimization-guide-on-device-model` and set it to **Enabled BypassPrefRequirement** (or **Enabled**).
