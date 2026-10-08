@@ -68,6 +68,24 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - Upgrades flat callback logs into standardized hierarchical OpenTelemetry trace trees (`Trace`, `Span`). Automatically tracks parent-child span links (`parentSpanId`), timestamps, execution durations (`durationMs`), status codes (`SpanStatus.OK / ERROR`), and custom attributes.
   - Features built-in multi-destination exporters (`ConsoleTraceExporter`, `IndexedDBTraceExporter`, and `OTLPTraceExporter` for HTTP OTLP telemetry dashboards).
   - Includes a live **Interactive Trace Explorer Dashboard** in the host UI (`index.html`) with expandable parent-child tree views and one-click OTLP JSON downloads.
+- **Download Readiness & User Activation Gatekeeper**:
+  - `ChromeBuiltInAIPlugin.checkAvailability()` / `PromptChainHost.checkAvailability()` safely returns `'readily' | 'after-download' | 'unavailable'` without throwing errors when the Prompt API is missing or disabled.
+  - Automatically satisfies Chrome's mandatory user activation gesture requirement for model downloads via `ensureUserActivation` (`activationButton` and `activationHint` options), displaying the UI button and awaiting a click gesture before triggering download.
+  - Normalizes download progress events (`{ resource, loaded, total, percent }`) and automatically drives `<progress>` elements (`downloadProgress` option), switching to an indeterminate state while unpacking the model.
+- **AbortSignal Propagation & Execution Cancellation**:
+  - Full cancellation support across all execution layers via native `AbortSignal` and [`untilAborted()`](file:///c:/Lectures/Demo/src/utils.js).
+  - Tools receive `{ signal }` in `Tool.execute(params, { signal })` and cancel promptly on abort without dangling promises.
+  - `PromptChainHost.runAgent(..., { signal })` and `host.abortAgent(sessionId)` immediately stop ongoing background Web Worker agent reasoning loops.
+- **Zero-Dependency Streaming HTML Sanitizer (`StreamingHtmlSanitizer`)**:
+  - Prevents split-tag XSS injection across streaming chunk boundaries via `pendingTagStart`, buffering incomplete tag boundaries until the closing `>` arrives.
+  - Preserves markdown code fences (```` ``` ````) intact (`splitByCodeFences`) so code examples are not corrupted by HTML sanitization.
+  - Automatically neutralizes dangerous protocol injections (`javascript:`, `vbscript:`, `data:`).
+- **Chrome Summarizer API Compaction & Permanent Anchoring (`BuiltInAISummarizer`)**:
+  - Integrates Chrome's native **Summarizer API** (`window.ai.summarizer`).
+  - Implements `session.compact()`, summarizing historical turns and re-anchoring them into `initialPrompts`. Unlike rolling history turns, Chrome Prompt API guarantees that `initialPrompts` are permanently pinned and immune to runtime overflow evictions.
+- **Native Prompt API Structured Tool Calling**:
+  - Supports declaring tools directly to `LanguageModel.create({ tools })`, enabling Chrome Built-in AI's native `tool-call` and `tool-response` content types.
+  - Bridges native structured tool calls directly into `ReActAgentExecutor` and `JSONOutputParserRunnable`, bypassing text regex parsing and eliminating hallucinated action strings.
 - **Interactive UI Stream**: A sleek interface built with HTML/CSS that displays real-time agent reasoning steps (Thoughts, Actions, and Observations), live token generation, download progress bars, interactive HITL approval cards, and trace hierarchies.
 
 ---
@@ -117,7 +135,8 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [agent-memory.js](file:///c:/Lectures/Demo/src/core/agent-memory.js): IndexedDB persistent conversation storage manager.
 - **[src/models/](file:///c:/Lectures/Demo/src/models)**:
   - [base-model-plugin.js](file:///c:/Lectures/Demo/src/models/base-model-plugin.js): Abstract base class defining standard contract (`init`, `generate`, `measureContextUsage`, `getContextStats`, `destroy`).
-  - [chrome-built-in-ai-plugin.js](file:///c:/Lectures/Demo/src/models/chrome-built-in-ai-plugin.js): Native Chrome `window.LanguageModel` (Gemini Nano) inference plugin.
+  - [chrome-built-in-ai-plugin.js](file:///c:/Lectures/Demo/src/models/chrome-built-in-ai-plugin.js): Native Chrome `window.LanguageModel` (Gemini Nano) inference plugin with activation gatekeeper, download tracking, compaction, and native tools.
+  - [built-in-ai-summarizer.js](file:///c:/Lectures/Demo/src/models/built-in-ai-summarizer.js): Chrome Built-in Summarizer API integration (`BuiltInAISummarizer`) for on-device context compaction.
   - [ollama-plugin.js](file:///c:/Lectures/Demo/src/models/ollama-plugin.js): Native `fetch()` REST API integration for local Ollama servers (supporting `/api/chat`, `/api/generate`, NDJSON streaming, and JSON schema formatting).
   - [transformers-js-plugin.js](file:///c:/Lectures/Demo/src/models/transformers-js-plugin.js): In-browser / Web Worker ONNX inference using Hugging Face Transformers.js supporting custom pipelines, lazy loaders, and `TextStreamer` token callbacks.
   - [custom-model-plugin.js](file:///c:/Lectures/Demo/src/models/custom-model-plugin.js): Flexible functional wrapper allowing custom `generateFn`, `initFn`, and `measureContextFn` callbacks.
@@ -125,7 +144,7 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
   - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
   - [supervisor-demo.js](file:///c:/Lectures/Demo/src/examples/supervisor-demo.js): Demonstration of an LLM-supervised multi-agent swarm (`Researcher` + `MathExpert`).
-- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, pluggable model plugins ([test-model-plugins.js](file:///c:/Lectures/Demo/tests/test-model-plugins.js)), and cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)).
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, pluggable model plugins ([test-model-plugins.js](file:///c:/Lectures/Demo/tests/test-model-plugins.js)), cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)), and user activation, HTML sanitization, abort signals, and Summarizer compaction ([test-new-features.js](file:///c:/Lectures/Demo/tests/test-new-features.js)).
 
 
 
@@ -408,6 +427,93 @@ const host = new PromptChainHost('./worker.js', {
 });
 ```
 
+### 13. Download Readiness, User Activation & Progress UX
+Chrome Prompt API downloads require an active user activation gesture if the model needs to be fetched from the network. `ChromeBuiltInAIPlugin` and `PromptChainHost` manage this automatically:
+```javascript
+import { PromptChainHost, ChromeBuiltInAIPlugin } from '@gilfink/prompt-chain';
+
+// 1. Check availability gracefully without throwing
+const availability = await PromptChainHost.checkAvailability();
+console.log(`Prompt API state: ${availability}`); // 'readily' | 'after-download' | 'unavailable'
+
+// 2. Initialize host with activation button & download progress element
+const host = new PromptChainHost('./worker.js', {
+    model: new ChromeBuiltInAIPlugin({
+        activationButton: document.getElementById('download-btn'),
+        activationHint: document.getElementById('download-hint'),
+        downloadProgress: document.getElementById('progress-bar'),
+        onDownloadProgress: ({ loaded, total, percent }) => {
+            console.log(`Downloading Gemini Nano: ${percent}% (${loaded}/${total})`);
+        }
+    })
+});
+
+await host.init("You are an on-device assistant.");
+```
+
+### 14. Execution Cancellation & AbortSignal Propagation
+Halt long-running agent executions or in-flight tool operations instantly without hanging background Web Workers:
+```javascript
+// A. Pass standard AbortSignal to host.runAgent()
+const controller = new AbortController();
+document.getElementById('stop-btn').addEventListener('click', () => controller.abort());
+
+try {
+    await host.runAgent("Process massive dataset", "session_1", { signal: controller.signal });
+} catch (err) {
+    console.log("Agent run halted cleanly:", err.message);
+}
+
+// B. Or call host.abortAgent() directly:
+host.abortAgent("session_1");
+
+// C. Inside tools, executeFn receives context: { signal } automatically:
+const slowFetchTool = new Tool("slowFetch", "Fetches remote data", async (input, { signal }) => {
+    const response = await fetch(input.url, { signal }); // Cancelled immediately if agent is stopped
+    return await response.text();
+});
+```
+
+### 15. Zero-Dependency Streaming HTML Sanitization
+Safely stream HTML chunks directly into DOM elements without risk of split-tag XSS injection or destroying code blocks:
+```javascript
+import { StreamingHtmlSanitizer } from '@gilfink/prompt-chain';
+
+const sanitizer = new StreamingHtmlSanitizer({ ignoreFencedCode: true });
+const container = document.getElementById('output');
+
+// In token stream callback:
+function onToken(delta) {
+    const safeHtml = sanitizer.push(delta);
+    if (safeHtml) {
+        container.insertAdjacentHTML('beforeend', safeHtml);
+    }
+}
+
+// At end of stream:
+const remaining = sanitizer.flush();
+if (remaining) {
+    container.insertAdjacentHTML('beforeend', remaining);
+}
+```
+
+### 16. Chrome Summarizer API & Permanent Context Compaction
+Reclaim context capacity by summarizing long turns using Chrome's native Summarizer API and anchoring the summary into `initialPrompts`:
+```javascript
+import { ChromeBuiltInAIPlugin, BuiltInAISummarizer } from '@gilfink/prompt-chain';
+
+// Verify Summarizer API readiness
+const summarizerReady = await BuiltInAISummarizer.checkAvailability();
+
+const plugin = new ChromeBuiltInAIPlugin();
+await plugin.init("You are a helpful assistant");
+
+// Compact conversation history turns:
+// Summarizes past dialogue and re-anchors the summary into initialPrompts,
+// which Chrome guarantees are permanently protected against runtime context eviction.
+const { summary, session } = await plugin.compact(conversationTurns);
+console.log("Compacted Summary:", summary);
+```
 
 ---
 
