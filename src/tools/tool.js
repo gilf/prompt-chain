@@ -40,6 +40,6 @@ export class Tool extends Runnable {
                 throw new Error(`Tool '${this.name}' missing required parameter(s): ${missing.join(", ")}`);
             }
         }
-        return await runWithTimeout(this.executeFn, input, config.timeoutMs || 3000);
+        return await runWithTimeout(this.executeFn, input, config.timeoutMs || 3000, config);
     }
 }

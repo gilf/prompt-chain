@@ -141,10 +141,35 @@ export class PromptChainHost {
         }
     }
 
-    runAgent(userPrompt, sessionId = "default_session") {
+    static async checkAvailability(options = {}) {
+        return await ChromeBuiltInAIPlugin.checkAvailability(options);
+    }
+
+    runAgent(userPrompt, sessionId = "default_session", options = {}) {
         return new Promise((resolve, reject) => {
+            if (options.signal?.aborted) {
+                reject(options.signal.reason || new Error("Agent execution aborted."));
+                return;
+            }
             const id = ++this.msgId;
             this.callbacks.set(id, { resolve, reject });
+
+            if (options.signal) {
+                options.signal.addEventListener('abort', () => {
+                    if (this.worker) {
+                        this.worker.postMessage({
+                            id,
+                            type: MessageContext.abortLoop,
+                            payload: { sessionId }
+                        });
+                    }
+                    const cb = this.callbacks.get(id);
+                    if (cb) {
+                        cb.reject(options.signal.reason || new Error("Agent execution aborted."));
+                        this.callbacks.delete(id);
+                    }
+                }, { once: true });
+            }
 
             this.worker.postMessage({
                 id,
@@ -152,6 +177,16 @@ export class PromptChainHost {
                 payload: { userPrompt, sessionId }
             });
         });
+    }
+
+    abortAgent(sessionId = "default_session") {
+        if (this.worker) {
+            this.worker.postMessage({
+                id: 0,
+                type: MessageContext.abortLoop,
+                payload: { sessionId }
+            });
+        }
     }
 
     resume(checkpointId, approvedParams) {

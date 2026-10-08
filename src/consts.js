@@ -14,7 +14,8 @@ export const MessageContext = {
     agentError: 'agent_error',
     agentInterrupt: 'agent_interrupt',
     startLoop: 'start_loop',
-    resumeLoop: 'resume_loop'
+    resumeLoop: 'resume_loop',
+    abortLoop: 'abort_loop'
 };
 
 export const CallbackEvents = {

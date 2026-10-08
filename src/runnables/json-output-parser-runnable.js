@@ -13,6 +13,23 @@ export class JSONOutputParserRunnable extends Runnable {
      * @returns {Promise<{success: boolean, parsed?: Object, error?: string}>} Parsing result container.
      */
     async invoke(responseText, config = {}) {
+        if (typeof responseText === 'object' && responseText !== null) {
+            if (Array.isArray(responseText.toolCalls) && responseText.toolCalls.length > 0) {
+                const primary = responseText.toolCalls[0];
+                return {
+                    success: true,
+                    parsed: {
+                        thought: responseText.text || "Executing native tool call",
+                        toolName: primary.name,
+                        toolInput: primary.arguments || {},
+                        finalAnswer: ""
+                    }
+                };
+            }
+            if (responseText.parsed) return responseText;
+            return { success: true, parsed: responseText };
+        }
+
         try {
             let cleanText = (responseText || "").trim();
             if (cleanText.startsWith("```json")) {
