@@ -70,6 +70,7 @@ node ./tests/test-vector-rag.js        # Verifies IndexedDB cosine similarity & 
 node ./tests/test-fallback.js          # Verifies hybrid routing & self-correction retry limits
 node ./tests/test-hitl.js              # Verifies checkpoint serialization & interruption resumption
 node ./tests/test-token-buffer.js      # Verifies watermark observation pruning & rolling summarization
+node ./tests/test-easy-lm-features.js  # Verifies user activation, HTML sanitization, abort signals, & summarizer compaction
 ```
 Ensure all relevant test suites pass with **0 failures** before completing a task.
 

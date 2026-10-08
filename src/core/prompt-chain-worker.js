@@ -168,10 +168,16 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
         agentExecutor = createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, measureContextUsage, getContextStats, logToMain, callbackManager, memory, options, agentSchema);
     }
 
+    let currentAbortController = null;
+
     self.addEventListener('message', async (e) => {
         const { id, type, payload } = e.data;
 
-        if (type === MessageContext.llmStreamToken) {
+        if (type === MessageContext.abortLoop) {
+            if (currentAbortController) {
+                currentAbortController.abort(new Error("Agent execution aborted by host."));
+            }
+        } else if (type === MessageContext.llmStreamToken) {
             callbackManager.dispatch(CallbackEvents.llmNewToken, { token: payload });
         } else if (type === MessageContext.llmMeasureResponse || type === MessageContext.llmStatsResponse || type === MessageContext.llmResponse) {
             if (type === MessageContext.llmResponse) {
@@ -181,11 +187,13 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
         } else if (type === MessageContext.llmError) {
             rpcClient.handleResponse(id, payload, true);
         } else if (type === MessageContext.startLoop) {
+            currentAbortController = new AbortController();
             try {
                 await memory.init();
                 const answer = await agentExecutor.invoke({
                     userPrompt: payload.userPrompt,
                     sessionId: payload.sessionId,
+                    signal: currentAbortController.signal,
                     memory,
                     askLLM,
                     logToMain
@@ -200,11 +208,13 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
                 self.postMessage({ id, type: MessageContext.agentError, payload: err.message });
             }
         } else if (type === MessageContext.resumeLoop) {
+            currentAbortController = new AbortController();
             try {
                 await memory.init();
                 const answer = await agentExecutor.resume({
                     checkpointId: payload.checkpointId,
                     approvedParams: payload.approvedParams,
+                    signal: currentAbortController.signal,
                     memory,
                     askLLM,
                     logToMain

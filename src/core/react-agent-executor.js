@@ -53,9 +53,11 @@ export class ReActAgentExecutor extends Runnable {
         retryDelayMs = 1000,
         defaultMaxTokens = 3400,
         maxSelfCorrectionAttempts = 2,
-        cloudFallbackRunnable = null
+        cloudFallbackRunnable = null,
+        abortSignal = null
     }) {
         super();
+        this.abortSignal = abortSignal;
         this.tools = tools;
         this.skills = skills;
         this.memory = memory;
@@ -100,15 +102,24 @@ export class ReActAgentExecutor extends Runnable {
     }
 
     async _executeToolWithRetry(tool, toolName, toolInput, inputLogStr) {
+        if (this.abortSignal?.aborted) {
+            throw this.abortSignal.reason || new Error("Tool execution aborted.");
+        }
         let toolResult;
         let success = false;
         let retryCount = 0;
 
         while (retryCount <= this.maxRetries && !success) {
+            if (this.abortSignal?.aborted) {
+                throw this.abortSignal.reason || new Error("Tool execution aborted.");
+            }
             try {
-                toolResult = await tool.invoke(toolInput);
+                toolResult = await tool.invoke(toolInput, { signal: this.abortSignal, timeoutMs: this.retryDelayMs * 3 || 3000 });
                 success = true;
             } catch (err) {
+                if (this.abortSignal?.aborted) {
+                    throw this.abortSignal.reason || new Error("Tool execution aborted.");
+                }
                 if (isRecoverableError(err) && retryCount < this.maxRetries) {
                     retryCount++;
                     this.logToMain(`Observation: Tool timed out. Retrying...`);
@@ -178,6 +189,9 @@ export class ReActAgentExecutor extends Runnable {
         let selfCorrectionCount = 0;
 
         while (!isComplete && loopCount < this.maxIterations) {
+            if (this.abortSignal?.aborted) {
+                throw this.abortSignal.reason || new Error("Agent execution aborted.");
+            }
             loopCount++;
 
             this.callbackManager?.dispatch(CallbackEvents.llmStart, { loopCount });
@@ -266,7 +280,11 @@ export class ReActAgentExecutor extends Runnable {
      * @param {string} [payload.sessionId="default_session"] - Conversation session ID.
      * @returns {Promise<string|Object>} Final text answer or interruption checkpoint state.
      */
-    async invoke({ userPrompt, sessionId }) {
+    async invoke({ userPrompt, sessionId, signal }) {
+        if (signal) this.abortSignal = signal;
+        if (this.abortSignal?.aborted) {
+            throw this.abortSignal.reason || new Error("Agent execution aborted.");
+        }
         this.callbackManager?.dispatch(CallbackEvents.chainStart, { userPrompt, sessionId });
 
         let { history: historyTurns, summary: conversationSummary } = await this.memory.getHistory(sessionId);
@@ -295,9 +313,14 @@ export class ReActAgentExecutor extends Runnable {
      * @param {import('./agent-memory.js').AgentMemory} [options.memory] - Optional memory instance.
      * @param {Function} [options.askLLM] - Optional askLLM handler.
      * @param {Function} [options.logToMain] - Optional logger callback.
+     * @param {AbortSignal} [options.signal] - Optional abort signal.
      * @returns {Promise<string|Object>} Final answer string or next interruption checkpoint.
      */
-    async resume({ checkpointId, approvedParams, memory, askLLM, logToMain }) {
+    async resume({ checkpointId, approvedParams, memory, askLLM, logToMain, signal }) {
+        if (signal) this.abortSignal = signal;
+        if (this.abortSignal?.aborted) {
+            throw this.abortSignal.reason || new Error("Agent execution aborted.");
+        }
         if (memory) this.memory = memory;
         if (askLLM) this.askLLM = askLLM;
         if (logToMain) this.logToMain = logToMain;
