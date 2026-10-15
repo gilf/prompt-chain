@@ -129,7 +129,8 @@ export function createDefaultAgentExecutor(toolsArray, skillsArray, askLLM, meas
         retryDelayMs: options?.retryDelayMs,
         defaultMaxTokens: options?.defaultMaxTokens,
         maxSelfCorrectionAttempts: options?.maxSelfCorrectionAttempts ?? 2,
-        cloudFallbackRunnable
+        cloudFallbackRunnable,
+        enableHistory: options?.enableHistory ?? options?.history ?? true
     });
 }
 
@@ -194,6 +195,7 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
                     userPrompt: payload.userPrompt,
                     sessionId: payload.sessionId,
                     signal: currentAbortController.signal,
+                    enableHistory: payload.enableHistory ?? payload.history,
                     memory,
                     askLLM,
                     logToMain
@@ -215,6 +217,7 @@ export function createAgentWorker(toolsOrRunnable, skillsArray = [], callbacks =
                     checkpointId: payload.checkpointId,
                     approvedParams: payload.approvedParams,
                     signal: currentAbortController.signal,
+                    enableHistory: payload.enableHistory ?? payload.history,
                     memory,
                     askLLM,
                     logToMain

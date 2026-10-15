@@ -1,9 +1,10 @@
 import { Runnable } from "../runnables/index.js";
 
 export class PromptTemplate extends Runnable {
-    constructor() {
+    constructor(options = {}) {
         super();
-        this.systemInstruction = `You are an autonomous AI agent with long-term memory. Think step-by-step.
+        this.options = options;
+        this.systemInstruction = options.systemInstruction || `You are an autonomous AI agent. Think step-by-step.
             You must STRICTLY output valid JSON matching the schema.
             
             Rules:

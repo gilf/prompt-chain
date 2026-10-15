@@ -174,7 +174,11 @@ export class PromptChainHost {
             this.worker.postMessage({
                 id,
                 type: MessageContext.startLoop,
-                payload: { userPrompt, sessionId }
+                payload: {
+                    userPrompt,
+                    sessionId,
+                    enableHistory: options.enableHistory ?? options.history
+                }
             });
         });
     }
@@ -189,7 +193,7 @@ export class PromptChainHost {
         }
     }
 
-    resume(checkpointId, approvedParams) {
+    resume(checkpointId, approvedParams, options = {}) {
         return new Promise((resolve, reject) => {
             const id = ++this.msgId;
             this.callbacks.set(id, { resolve, reject });
@@ -197,7 +201,11 @@ export class PromptChainHost {
             this.worker.postMessage({
                 id,
                 type: MessageContext.resumeLoop,
-                payload: { checkpointId, approvedParams }
+                payload: {
+                    checkpointId,
+                    approvedParams,
+                    enableHistory: options.enableHistory ?? options.history
+                }
             });
         });
     }

@@ -54,10 +54,13 @@ export class ReActAgentExecutor extends Runnable {
         defaultMaxTokens = 3400,
         maxSelfCorrectionAttempts = 2,
         cloudFallbackRunnable = null,
-        abortSignal = null
+        abortSignal = null,
+        enableHistory = true,
+        history = null
     }) {
         super();
         this.abortSignal = abortSignal;
+        this.enableHistory = history !== null ? Boolean(history) : Boolean(enableHistory);
         this.tools = tools;
         this.skills = skills;
         this.memory = memory;
@@ -183,7 +186,7 @@ export class ReActAgentExecutor extends Runnable {
      * Shared core ReAct reasoning turn loop used by both invoke() and resume().
      * @private
      */
-    async _runReActLoop({ chainInput, historyTurns, userPrompt, sessionId, loopCount, currentTurnLog, conversationSummary, toolsMap }) {
+    async _runReActLoop({ chainInput, historyTurns, userPrompt, sessionId, loopCount, currentTurnLog, conversationSummary, toolsMap, useHistory = true }) {
         let isComplete = false;
         let finalResult = "";
         let selfCorrectionCount = 0;
@@ -264,7 +267,7 @@ export class ReActAgentExecutor extends Runnable {
             }
         }
 
-        if (finalResult) {
+        if (finalResult && useHistory && this.memory) {
             await this._saveAndCompressHistory(sessionId, userPrompt, finalResult, historyTurns, conversationSummary);
         }
 
@@ -280,14 +283,25 @@ export class ReActAgentExecutor extends Runnable {
      * @param {string} [payload.sessionId="default_session"] - Conversation session ID.
      * @returns {Promise<string|Object>} Final text answer or interruption checkpoint state.
      */
-    async invoke({ userPrompt, sessionId, signal }) {
+    async invoke({ userPrompt, sessionId, signal, enableHistory, history }) {
         if (signal) this.abortSignal = signal;
         if (this.abortSignal?.aborted) {
             throw this.abortSignal.reason || new Error("Agent execution aborted.");
         }
         this.callbackManager?.dispatch(CallbackEvents.chainStart, { userPrompt, sessionId });
 
-        let { history: historyTurns, summary: conversationSummary } = await this.memory.getHistory(sessionId);
+        const useHistory = enableHistory !== undefined
+            ? Boolean(enableHistory)
+            : (history !== undefined ? Boolean(history) : this.enableHistory);
+
+        let historyTurns = [];
+        let conversationSummary = "";
+        if (useHistory && this.memory) {
+            const hist = await this.memory.getHistory(sessionId);
+            historyTurns = hist.history || [];
+            conversationSummary = hist.summary || "";
+        }
+
         const { relevantTools, skillInstructions, toolsMap } = await this._prepareContext(userPrompt);
 
         let currentTurnLog = `User: ${userPrompt}\n`;
@@ -301,7 +315,8 @@ export class ReActAgentExecutor extends Runnable {
             loopCount: 0,
             currentTurnLog,
             conversationSummary,
-            toolsMap
+            toolsMap,
+            useHistory
         });
     }
 
@@ -316,7 +331,7 @@ export class ReActAgentExecutor extends Runnable {
      * @param {AbortSignal} [options.signal] - Optional abort signal.
      * @returns {Promise<string|Object>} Final answer string or next interruption checkpoint.
      */
-    async resume({ checkpointId, approvedParams, memory, askLLM, logToMain, signal }) {
+    async resume({ checkpointId, approvedParams, memory, askLLM, logToMain, signal, enableHistory, history }) {
         if (signal) this.abortSignal = signal;
         if (this.abortSignal?.aborted) {
             throw this.abortSignal.reason || new Error("Agent execution aborted.");
@@ -324,6 +339,10 @@ export class ReActAgentExecutor extends Runnable {
         if (memory) this.memory = memory;
         if (askLLM) this.askLLM = askLLM;
         if (logToMain) this.logToMain = logToMain;
+
+        const useHistory = enableHistory !== undefined
+            ? Boolean(enableHistory)
+            : (history !== undefined ? Boolean(history) : this.enableHistory);
 
         const checkpoint = await this.memory.getCheckpoint(checkpointId);
         if (!checkpoint) {
@@ -369,7 +388,8 @@ export class ReActAgentExecutor extends Runnable {
             loopCount,
             currentTurnLog,
             conversationSummary,
-            toolsMap
+            toolsMap,
+            useHistory
         });
     }
 }
