@@ -31,6 +31,7 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
 - **Typed Message History & Roles (LangChain Standard)**:
   - Structures memory using standardized message objects (`HumanMessage`, `AIMessage`, `SystemMessage`, `ToolMessage`) defined in [messages.js](file:///c:/Lectures/Demo/src/core/messages.js).
   - Uses [agent-memory.js](file:///c:/Lectures/Demo/src/core/agent-memory.js) to persist object-oriented message schemas directly in **IndexedDB**.
+  - **Fully Configurable**: Conversation history can be toggled on/off at agent creation (`createAgentWorker(tools, skills, callbacks, { enableHistory: false })`) or on a per-invocation basis (`host.runAgent(prompt, sessionId, { enableHistory: false })`) for pure stateless/single-turn execution.
   - Implements automatic conversation summarization (defined in [utils.js](file:///c:/Lectures/Demo/src/utils.js)) once the chat history exceeds 5 turns, ensuring the context window remains optimized.
 - **Complex Structured Tool Schemas (Multi-Parameter Tools)**:
   - Tools extend `Runnable` and accept structured JSON Schema parameter definitions. Supports both legacy string inputs and complex multi-parameter objects (e.g., `bookFlight({ origin: "NYC", dest: "LAX", passengers: 2 })`).
@@ -144,7 +145,7 @@ It leverages **Prompt API** for private, local, and cost-free inference, combini
   - [my-agent.js](file:///c:/Lectures/Demo/src/examples/my-agent.js): Default Web Worker entry point running global tools and dynamic skills.
   - [custom-runner-demo.js](file:///c:/Lectures/Demo/src/examples/custom-runner-demo.js): Demonstration of custom linear QA topologies.
   - [supervisor-demo.js](file:///c:/Lectures/Demo/src/examples/supervisor-demo.js): Demonstration of an LLM-supervised multi-agent swarm (`Researcher` + `MathExpert`).
-- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, pluggable model plugins ([test-model-plugins.js](file:///c:/Lectures/Demo/tests/test-model-plugins.js)), cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)), and user activation, HTML sanitization, abort signals, and Summarizer compaction ([test-new-features.js](file:///c:/Lectures/Demo/tests/test-new-features.js)).
+- **[tests/](file:///c:/Lectures/Demo/tests)**: Complete automated test suites covering LCEL runnables, HITL interrupts, callbacks, token buffers, structured tools, fallback routing, structured output, on-device vector RAG, pluggable model plugins ([test-model-plugins.js](file:///c:/Lectures/Demo/tests/test-model-plugins.js)), cyclical state graph / multi-agent supervisor swarms ([test-state-graph.js](file:///c:/Lectures/Demo/tests/test-state-graph.js)), user activation, HTML sanitization, abort signals, and Summarizer compaction ([test-new-features.js](file:///c:/Lectures/Demo/tests/test-new-features.js)), and configurable conversation history ([test-configurable-history.js](file:///c:/Lectures/Demo/tests/test-configurable-history.js)).
 
 
 
@@ -513,6 +514,26 @@ await plugin.init("You are a helpful assistant");
 // which Chrome guarantees are permanently protected against runtime context eviction.
 const { summary, session } = await plugin.compact(conversationTurns);
 console.log("Compacted Summary:", summary);
+```
+
+### 17. Configurable Conversation History & Stateless Execution
+By default, agents persist conversation turns in IndexedDB (`AgentMemoryDB`). For single-turn tools, stateless calculators, or privacy-sensitive agents, history can be disabled either at worker instantiation or per invocation:
+
+#### A. Disabling History at Agent Creation (Stateless Worker)
+```javascript
+// In worker (e.g. my-agent.js)
+createAgentWorker([calcTool, fetchTool], [], null, {
+    enableHistory: false // Agent will run purely stateless without querying or saving history
+});
+```
+
+#### B. Per-Invocation History Override
+```javascript
+// In main thread (host UI)
+// Run a one-off private query without loading or saving history
+const answer = await host.runAgent("What is 542 * 13?", "session_123", {
+    enableHistory: false // Overrides the agent's default for this run only
+});
 ```
 
 ---
